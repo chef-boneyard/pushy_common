@@ -32,7 +32,10 @@ get_config(OrgName, Hostname, Port) ->
 -spec parse_json_response(Body::string()) -> list().
 %% @doc Parse the configuration response body and return the heartbeat
 %% and command channel addresses along with the public key
-%% for the server
+%% for the server.
+%%
+%% We convert the zeromq addresses to lists since it doesn't support
+%% binary endpoints
 parse_json_response(Body) ->
     EJson = jiffy:decode(Body),
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
