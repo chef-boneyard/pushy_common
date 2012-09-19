@@ -23,6 +23,18 @@
 %% @doc Generate a folsom metric label for upstream `Prefix' and function name `Fun'.
 %% An error is thrown if `Prefix' is unknown.
 %% This is where we encode the mapping of module to upstream label.
+label(pushy_client_config, get_config) ->
+    label('config', get_config);
+label(pushysim_client, connect_to_heartbeat) ->
+    label('messaging', all);
+label(pushysim_client, connect_to_command) ->
+    label('messaging', all);
+label(pushysim_client, do_receive) ->
+    label('messaging', recv);
+label(pushysim_client, send_heartbeat) ->
+    label('messaging', heartbeat);
+label(pushysim_client, send_response) ->
+    label('messaging', send);
 label(pushy_util, signed_header_from_message) ->
     label(send, gen_sig);
 label(pushy_util, do_authenticate_message) ->
@@ -42,7 +54,9 @@ label(chef_authn, _) ->
 label(authn, _) ->
     label('authn', all);
 label(Prefix, Fun) when Prefix =:= send;
-                        Prefix =:= 'receive'->
+                        Prefix =:= 'receive';
+                        Prefix =:= 'config';
+                        Prefix =:= 'messaging' ->
     PrefixBin = erlang:atom_to_binary(Prefix, utf8),
     FunBin = erlang:atom_to_binary(Fun, utf8),
     iolist_to_binary([PrefixBin, ".", FunBin]);
