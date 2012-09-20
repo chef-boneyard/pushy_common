@@ -29,7 +29,7 @@ label(pushysim_client, connect_to_heartbeat) ->
     label('messaging', all);
 label(pushysim_client, connect_to_command) ->
     label('messaging', all);
-label(pushysim_client, do_receive) ->
+label(pushysim_client, receive_message) ->
     label('messaging', recv);
 label(pushysim_client, send_heartbeat) ->
     label('messaging', heartbeat);
