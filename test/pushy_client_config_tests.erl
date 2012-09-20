@@ -23,6 +23,9 @@
 
 
 -include_lib("eunit/include/eunit.hrl").
+-include("pushy_client.hrl").
+
+-define(GV(Config, Field), Config#pushy_client_config.Field).
 
 setup_env() ->
     ok.
@@ -36,9 +39,11 @@ make_response_body() ->
                          {<<"command_addr">>,<<"tcp://localhost:10002">>},
                          {<<"interval">>,1.0},
                          {<<"offline_threshold">>,3},
-                         {<<"online_threshold">>,2}]}}]}},
+                         {<<"online_threshold">>,2}]}
+                      }]}
+                   },
                    {<<"public_key">>,
-                    <<"-----BEGIN PUBLIC KEY-----\n">>},
+                    <<"-----BEGIN PUBLIC KEY-----\n\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx4Kc2bvqzVjWph8Iotkf\ns2uW7DyA7uL30DnmCK+yoiIBwC3R+TtxP\/kh1bv8T25aiK1OYwluA3LhEgVdgnPV\nyHPiuVY6t61+pR80Knxee3LReDYulf404YfUd0um5OS+MABOMB2V6inPLKDsRMlm\n1nw8QLtA5fBak5zIMEfx2QmwDsFWmOxS0WufJwASW3XbJzKvGhYpodelBLDAofe+\nzVJh9vBNqamh\/vpP\/OKCmsDaTV2Glb7KvG8Q25Ves1+OHpb8O8EqTovxcX+KQuLB\nvfW6Q3UO6Oil+FYFhyNSPg69NCiXISxg\/TaCGThqFxD97Nq+EQj\/61hsF9vfh2v6\nnwIDAQAB\n-----END PUBLIC KEY-----\n\n">>},
                    {<<"lifetime">>,3600}]}).
 
 
@@ -62,10 +67,10 @@ simple_test_() ->
                            fun(_Url, _Headers, get) ->
                                     {ok, "200", [], make_response_body()}
                             end),
-               ConfigList = pushy_client_config:get_config(OrgName, Hostname, Port),
-               ?assertEqual("tcp://localhost:10000", proplists:get_value(heartbeat_address, ConfigList)),
-               ?assertEqual("tcp://localhost:10002", proplists:get_value(command_address, ConfigList)),
-               ?assertEqual(proplists:get_value(public_key, ConfigList), <<"-----BEGIN PUBLIC KEY-----\n">>)
+               Config = pushy_client_config:get_config(OrgName, Hostname, Port),
+               ?assertEqual("tcp://localhost:10000", ?GV(Config,heartbeat_address)),
+               ?assertEqual("tcp://localhost:10002", ?GV(Config, command_address)),
+               {'RSAPublicKey', _, _} = ?GV(Config, server_public_key)
                end},
      {"404 test",
       fun() -> meck:expect(ibrowse, send_req,

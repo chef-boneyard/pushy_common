@@ -10,12 +10,11 @@
          get_config/3
         ]).
 
-%% for dialyzer
-%%-type config_key() ::  heartbeat_address | command_address | public_key.
+-include("pushy_client.hrl").
 
 -spec get_config(OrgName :: binary(),
                  Hostname :: binary(),
-                 Port :: integer()) -> list().
+                 Port :: integer()) -> #pushy_client_config{}.
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
 get_config(OrgName, Hostname, Port) ->
@@ -29,21 +28,33 @@ get_config(OrgName, Hostname, Port) ->
             throw({error, Reason})
     end.
 
--spec parse_json_response(Body::string()) -> list().
+-spec parse_json_response(Body::string()) -> #pushy_client_config{}.
 %% @doc Parse the configuration response body and return the heartbeat
 %% and command channel addresses along with the public key
 %% for the server.
 %%
 %% We convert the zeromq addresses to lists since it doesn't support
-%% binary endpoints
+%% binary endpoints and the heartbeat interval to an integer
 parse_json_response(Body) ->
     EJson = jiffy:decode(Body),
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
     CommandAddress = ej:get({"push_jobs", "heartbeat", "command_addr"}, EJson),
-    PublicKey = ej:get({"public_key"}, EJson),
-    [{heartbeat_address, binary_to_list(HeartbeatAddress)},
-     {command_address, binary_to_list(CommandAddress)},
-     {public_key, PublicKey}].
+    Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
+    {ok, PublicKey} = rsa_public_key(ej:get({"public_key"}, EJson)),
+    #pushy_client_config{heartbeat_address = binary_to_list(HeartbeatAddress),
+                         heartbeat_interval = round(Interval*1000),
+                         command_address = binary_to_list(CommandAddress),
+                         server_public_key = PublicKey}.
+
+rsa_public_key(BinKey) ->
+    case chef_authn:extract_public_or_private_key(BinKey) of
+        {error, bad_key} ->
+            lager:error("Can't decode Public Key ~s~n", [BinKey]),
+            {error, bad_key};
+         Key when is_tuple(Key) ->
+            {ok, Key}
+    end.
+
 
 %% @doc Check the code of the HTTP response and throw error if non-2XX
 %%
