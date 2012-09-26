@@ -123,6 +123,9 @@ decrypt_sig(Sig, {'RSAPublicKey', _, _} = PK) ->
             decrypt_failed
     end.
 
+is_signature_valid(#pushy_header{version=unknown}, _, _, _) ->
+    lager:error("Unknown header type~n",[]),
+    false;
 is_signature_valid(#pushy_header{version=Proto, method=rsa2048_sha1=M, signature=Sig}, Body, EJson, KeyFetch)
   when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
     {ok, Key} = KeyFetch(M, EJson),
@@ -142,7 +145,12 @@ is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signatu
         _Else ->
             lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, _Else]),
             pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1)
-    end.
+    end;
+is_signature_valid(Signature, _, _, _) ->
+    lager:error("Can't handle signature ~w~n",[Signature]),
+    false.
+
+
 
 validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
