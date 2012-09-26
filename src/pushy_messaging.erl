@@ -11,12 +11,10 @@
          send_message/2,
          send_message_multi/3,
 
-
          parse_receive_message/3,
-         send_message_record/2,
 
-
-         build_outgoing_message/2
+         signed_header_from_message/3,
+         make_message/4
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -142,50 +140,56 @@ finalize_msg(#message{validated = ok_sofar} = Message) ->
     Message#message{validated = ok}.
 
 
-
 %%
+%% Message generation  
 %%
-%%
+-spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+make_message(Proto, rsa2048_sha1, Key, EJson) when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
+    %% Only supports rsa2048_sha1
+    Json = jiffy:encode(EJson),
+    Header = signed_header_from_message(Proto, Key, Json),
+    [Header, Json];
+make_message(proto_v2, hmac_sha256, Key, EJson) ->
+    Json = jiffy:encode(EJson),
+    Header = signed_header_from_message(proto_v2, Key, Json),
+    [Header, Json].
+
+signed_header_from_message(Proto, {hmac_sha256, Key}, Body) ->
+    HMAC = hmac:hmac256(Key, Body),
+    SignedChecksum = base64:encode(HMAC),
+    create_headers(Proto, hmac_sha256, SignedChecksum);
+signed_header_from_message(Proto, PrivateKey, Body) ->
+    %% TODO Find better way of enforcing this
+    ['RSAPrivateKey' | _ ] = tuple_to_list(PrivateKey),
+    HashedBody = chef_authn:hash_string(Body),
+    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, PrivateKey)),
+    create_headers(Proto, rsa2048_sha1, SignedChecksum).
+
+create_headers(Proto, Method, Sig) ->
+    Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, proto_to_bin(Proto)},
+                                                                   {<<"Method">>, atom_to_binary(Method, utf8)},
+                                                                   {<<"SignedChecksum">>, Sig}]],
+    join_bins(Headers, <<";">>).
+
+join_bins([], _Sep) ->
+    <<>>;
+join_bins(Bins, Sep) when is_binary(Sep) ->
+    join_bins(Bins, Sep, []).
+
+join_bins([B], _Sep, Acc) ->
+    iolist_to_binary(lists:reverse([B|Acc]));
+join_bins([B|Rest], Sep, Acc) ->
+    join_bins(Rest, Sep, [Sep, B | Acc]).
 
 
--spec send_message_record(Socket::erlzmq_socket_type(), Message::#message{} ) -> ok.
-send_message_record(Socket, #message{address=none, header=Header, raw=Body}) ->
-    send_message(Socket, [Header, Body]);
-send_message_record(Socket, #message{address=Address, header=Header, raw=Body}) ->
-    send_message(Socket, [Address, Header, Body]).
+proto_to_bin(proto_v1) ->
+    <<"1.0">>;
+proto_to_bin(proto_v2) ->
+    <<"2.0">>.
 
-%%
-%% build_message_record
-%%
--spec build_outgoing_message(Version::atom(), JsonBody::json_term()) -> #message{}.
-build_outgoing_message(version_1, JsonBody) ->
-    Msg0 = #message{validated = json_only,
-                    id = make_ref(),
-                    address = none,
-                    header = none,
-                    raw = none,
-                    version = none,
-                    signature = none,
-                    body = JsonBody},
-    Msg1 = encode_json(Msg0),
-    sign_msg(Msg1).
-
-
-encode_json(#message{validated=json_only, body=Body}=Msg) ->
-    try
-        Raw = jiffy:encode(Body),
-        Msg#message{validated = raw_encoded,
-                    raw = Raw}
-    catch
-        error:Error ->
-            Msg#message{validated = Error}
-    end.
-
-sign_msg(Msg) ->
-    Msg.
-
-
-
+%%%
+%%%
+%%%
 send_message(_Socket, []) ->
     ok;
 send_message(Socket, [Frame | [] ]) ->
