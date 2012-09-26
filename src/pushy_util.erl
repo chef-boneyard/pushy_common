@@ -15,7 +15,6 @@
          read_body/0,
          do_authenticate_message/2,
          do_authenticate_message/3,
-         signed_header_from_message/2,
          rand_bytes/1,
          guid_v4/0,
          gen_req_id_using_rand/2,
@@ -116,24 +115,6 @@ signed_checksum_from_header(Header) ->
     {_version, _Version, _signed_checksum, SignedChecksum}
         = list_to_tuple(HeaderParts),
     SignedChecksum.
-
-%% ENCODE/ENCRYPT
-signed_header_from_message(PrivateKey, Body) ->
-    HashedBody = chef_authn:hash_string(Body),
-    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, PrivateKey)),
-    Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, <<"1.0">>},
-                    {<<"SignedChecksum">>, SignedChecksum}]],
-    join_bins(Headers, <<";">>).
-
-join_bins([], _Sep) ->
-    <<>>;
-join_bins(Bins, Sep) when is_binary(Sep) ->
-    join_bins(Bins, Sep, []).
-
-join_bins([B], _Sep, Acc) ->
-    iolist_to_binary(lists:reverse([B|Acc]));
-join_bins([B|Rest], Sep, Acc) ->
-    join_bins(Rest, Sep, [Sep, B | Acc]).
 
 
 %%% R15 introduces strong_rand_bytes, which is preferable, but we still need to work on older versions.
