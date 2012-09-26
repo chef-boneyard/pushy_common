@@ -11,7 +11,7 @@
          send_message/2,
          send_message_multi/3,
 
-         parse_receive_message/3,
+         parse_message/3,
 
          signed_header_from_message/3,
          make_message/4
@@ -22,8 +22,6 @@
 
 -include("pushy_messaging.hrl").
 -include("pushy_metrics.hrl").
-
-
 
 
 %% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a message is all or nothing, I don't
@@ -50,35 +48,30 @@ receive_message_async(Socket, Frame) ->
     receive_frame_list(Socket, [Frame]).
 
 
--spec parse_receive_message(Socket::erlzmq_socket_type(), Frame::binary(), SigValidator::fun()) ->
-                                   #message{}.
-parse_receive_message(Socket, Frame, _SigValidator) ->
-    Msg1 = case receive_frame_list(Socket, [Frame]) of
-              [Header, Body] -> build_message_record(none, Header, Body);
-              [Address, Header, Body] -> build_message_record(Address, Header, Body)
-          end,
+-spec parse_message(binary(), binary(), pushy_key_fetch_fn()) -> #pushy_message{}.
+parse_message(Header, Body, KeyFetch) ->
+    Msg1 = build_message_record(none, Header, Body),
     Msg2 = parse_body(Msg1),
-%    lager:error("Processed msg (2) ~p ~p", [Msg2#message.validated, Msg2#message.body]),
-    Msg3 = validate_signature(Msg2),
-%    lager:error("Processed msg (3) ~p ~p", [Msg3#message.validated, Msg3#message.body]),
+%    lager:error("Processed msg (2) ~p ~p", [Msg2#pushy_message.validated, Msg2#pushy_message.body]),
+    Msg3 = validate_signature(Msg2,KeyFetch),
+%    lager:error("Processed msg (3) ~p ~p", [Msg3#pushy_message.validated, Msg3#pushy_message.body]),
     finalize_msg(Msg3).
 
 
 %%
 %% Build a message record for the various parse and validation stages to process
 %%
--spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #message{}.
+-spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #pushy_message{}.
 build_message_record(Address, Header, Body) ->
     Id = make_ref(),
-    {Version, SignedChecksum} = parse_header(Header),
+    Header = parse_header(Header),
     lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
-    #message{validated = ok_sofar,
-             id = Id,
-             address = Address,
-             version = Version,
-             signature = SignedChecksum,
-             raw = Body
-            }.
+    #pushy_message{validated = ok_sofar,
+                   id = Id,
+                   address = Address,
+                   parsed_header = Header,
+                   raw = Body
+                  }.
 
 len_h(none) -> 0;
 len_h(B) when is_binary(B) -> erlang:byte_size(B).
@@ -87,23 +80,37 @@ len_h(B) when is_binary(B) -> erlang:byte_size(B).
 %%
 %%
 %%
+parse_part(Record, <<"Version:","1.0">>) ->
+    Record#pushy_header{version = proto_v1};
+parse_part(Record, <<"Version:","2.0">>) ->
+    Record#pushy_header{version = proto_v2};
+parse_part(Record, <<"Version:",_>>) ->
+    Record#pushy_header{version = unknown};
+parse_part(Record, <<"Method:","hmac_sha256">>) ->
+    Record#pushy_header{method = hmac_sha256};
+parse_part(Record, <<"Method:","rsa2048_sha1">>) ->
+    Record#pushy_header{method = rsa2048_sha1};
+parse_part(Record, <<"Method:",_>>) ->
+    Record#pushy_header{method = unknown};
+parse_part(Record, <<"Signature:",Signature>>) ->
+    Record#pushy_header{signature = Signature}.
+
 parse_header(Header) ->
-    HeaderParts = re:split(Header, <<":|;">>),
-    {_version, Version, _signed_checksum, SignedChecksum} = list_to_tuple(HeaderParts),
-    {Version, SignedChecksum}.
+    HeaderParts = re:split(Header, <<";">>),
+    lists:foldl(fun parse_part/2, #pushy_header{}, HeaderParts).
 
 %%
 %% Parse the json body of the message
 %%
-parse_body(#message{validated = ok_sofar,
+parse_body(#pushy_message{validated = ok_sofar,
                     raw=Raw} = Message) ->
     try jiffy:decode(Raw) of
          {Data} ->
-            Message#message{body = Data}
+            Message#pushy_message{body = Data}
     catch
         exit:_Error ->
             lager:error("JSON parsing failed with error: ~s", [error]),
-            Message#message{validated = parse_fail}
+            Message#pushy_message{validated = parse_fail}
     end;
 parse_body(Message) -> Message.
 
@@ -116,28 +123,42 @@ decrypt_sig(Sig, {'RSAPublicKey', _, _} = PK) ->
             decrypt_failed
     end.
 
-validate_signature(#message{validated = ok_sofar,
-                            signature = SignedChecksum, version = _Version,
-                            raw = Raw, body = _Body} = Message) ->
-    %% TODO - query DB for public key of each client
-    {ok, PublicKey} = chef_keyring:get_key(client_public),
-%    Decrypted = ?TIME_IT(?MODULE, decrypt_sig, (SignedChecksum, PublicKey)),
-    Decrypted = decrypt_sig(SignedChecksum, PublicKey),
-    case chef_authn:hash_string(Raw) of
-        Decrypted -> Message;
+is_signature_valid(#pushy_header{version=Proto, method=rsa2048_sha1=M, signature=Sig}, Body, EJson, KeyFetch)
+  when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
+    {ok, Key} = KeyFetch(M, EJson),
+    Decrypted = decrypt_sig(Sig, Key),
+    case chef_authn:hash_string(Body) of
+        Decrypted -> true;
         _Else ->
-            case pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1) of
-                true -> ok;
-                false ->
-                    lager:error("Validation failed ~s ~s~n", [Decrypted, _Else]),
-                    Message#message{validated={fail, bad_sig}}
-            end
-        end;
-validate_signature(Message) -> Message.
+            lager:error("Validation failed sig provided ~s expected ~s~n", [Decrypted, _Else]),
+            pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1)
+    end;
+is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signature=Sig}, Body, EJson, KeyFetch) ->
+    {ok, Key} = KeyFetch(M, EJson),
+    HMAC = hmac:hmac256(Key, Body),
+    ExpectedSignature = base64:encode(HMAC),
+    case Sig of
+        ExpectedSignature -> true;
+        _Else ->
+            lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, _Else]),
+            pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1)
+    end.
+
+validate_signature(#pushy_message{validated = ok_sofar,
+                                  parsed_header = Header,
+                                  raw = Raw, body = EJson} = Message,
+                   KeyFetch) ->
+    case is_signature_valid(Header, Raw, EJson, KeyFetch) of 
+        true -> Message#pushy_message{validated = ok_sofar};
+        _Else ->
+
+            Message#pushy_message{validated={fail, bad_sig}}
+    end;
+validate_signature(Message, _KeyFetch) -> Message.
 
 
-finalize_msg(#message{validated = ok_sofar} = Message) ->
-    Message#message{validated = ok}.
+finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
+    Message#pushy_message{validated = ok}.
 
 
 %%
@@ -168,7 +189,7 @@ signed_header_from_message(Proto, PrivateKey, Body) ->
 create_headers(Proto, Method, Sig) ->
     Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, proto_to_bin(Proto)},
                                                                    {<<"Method">>, atom_to_binary(Method, utf8)},
-                                                                   {<<"SignedChecksum">>, Sig}]],
+                                                                   {<<"Signature">>, Sig}]],
     join_bins(Headers, <<";">>).
 
 join_bins([], _Sep) ->
