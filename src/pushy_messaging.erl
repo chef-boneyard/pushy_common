@@ -98,11 +98,11 @@ parse_part(<<"Version:","2.0">>, Record) ->
     Record#pushy_header{version = proto_v2};
 parse_part(<<"Version:",_/binary>>, Record) ->
     Record#pushy_header{version = unknown};
-parse_part(<<"Method:","hmac_sha256">>, Record) ->
+parse_part(<<"SigningMethod:","hmac_sha256">>, Record) ->
     Record#pushy_header{method = hmac_sha256};
-parse_part(<<"Method:","rsa2048_sha1">>, Record) ->
+parse_part(<<"SigningMethod:","rsa2048_sha1">>, Record) ->
     Record#pushy_header{method = rsa2048_sha1};
-parse_part(<<"Method:",_>>, Record) ->
+parse_part(<<"SigningMethod:",_>>, Record) ->
     Record#pushy_header{method = unknown};
 parse_part(<<"Signature:",Signature/binary>>, Record) ->
     Record#pushy_header{signature = Signature};
@@ -215,7 +215,7 @@ signed_header_from_message(Proto, PrivateKey, Body) ->
 
 create_headers(Proto, Method, Sig) ->
     Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, proto_to_bin(Proto)},
-                                                                   {<<"Method">>, atom_to_binary(Method, utf8)},
+                                                                   {<<"SigningMethod">>, atom_to_binary(Method, utf8)},
                                                                    {<<"Signature">>, Sig}]],
     join_bins(Headers, <<";">>).
 

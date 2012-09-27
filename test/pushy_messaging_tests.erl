@@ -41,7 +41,7 @@ make_message_test_() ->
       fun() ->
               [Header, Msg] = pushy_messaging:make_message(proto_v2, hmac_sha256,
                                                            {hmac_sha256, Hmac_sha256_key}, EJson),
-              <<"Version:2.0;Method:hmac_sha256;Signature:",Sig/binary>> = Header,
+              <<"Version:2.0;SigningMethod:hmac_sha256;Signature:",Sig/binary>> = Header,
               ?assertEqual(<<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>, Sig),
               ?assertEqual(JSon, Msg)
       end}
