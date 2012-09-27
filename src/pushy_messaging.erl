@@ -62,42 +62,57 @@ parse_message(Header, Body, KeyFetch) ->
 %% Build a message record for the various parse and validation stages to process
 %%
 -spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #pushy_message{}.
-build_message_record(Address, Header, Body) ->
+build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
-    Header = parse_header(Header),
     lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
-    #pushy_message{validated = ok_sofar,
-                   id = Id,
-                   address = Address,
-                   parsed_header = Header,
-                   raw = Body
-                  }.
+    case parse_header(Header) of
+        #pushy_header{version=unknown} ->
+            #pushy_message{validated = bad_header};
+        #pushy_header{version=no_version} ->
+            #pushy_message{validated = bad_header};
+        #pushy_header{} = HeaderRecord ->
+            #pushy_message{validated = ok_sofar,
+                           id = Id,
+                           address = Address,
+                           header = Header,
+                           raw = Body,
+                           parsed_header = HeaderRecord
+                          }
+    end;
+build_message_record(A,H,B) ->
+    #pushy_message{validated = bad_input,
+                  address = A,
+                  header = H,
+                  raw = B}.
 
 len_h(none) -> 0;
 len_h(B) when is_binary(B) -> erlang:byte_size(B).
 
 
 %%
+%% Parse various portions of the header
 %%
-%%
-parse_part(Record, <<"Version:","1.0">>) ->
+parse_part(<<"Version:","1.0">>, Record) ->
     Record#pushy_header{version = proto_v1};
-parse_part(Record, <<"Version:","2.0">>) ->
+parse_part(<<"Version:","2.0">>, Record) ->
     Record#pushy_header{version = proto_v2};
-parse_part(Record, <<"Version:",_>>) ->
+parse_part(<<"Version:",_/binary>>, Record) ->
     Record#pushy_header{version = unknown};
-parse_part(Record, <<"Method:","hmac_sha256">>) ->
+parse_part(<<"Method:","hmac_sha256">>, Record) ->
     Record#pushy_header{method = hmac_sha256};
-parse_part(Record, <<"Method:","rsa2048_sha1">>) ->
+parse_part(<<"Method:","rsa2048_sha1">>, Record) ->
     Record#pushy_header{method = rsa2048_sha1};
-parse_part(Record, <<"Method:",_>>) ->
+parse_part(<<"Method:",_>>, Record) ->
     Record#pushy_header{method = unknown};
-parse_part(Record, <<"Signature:",Signature>>) ->
-    Record#pushy_header{signature = Signature}.
+parse_part(<<"Signature:",Signature/binary>>, Record) ->
+    Record#pushy_header{signature = Signature};
+%% We are generous what we accept, in that they ignore unknown fields
+parse_part(_, Record) ->
+    Record.
 
 parse_header(Header) ->
     HeaderParts = re:split(Header, <<";">>),
-    lists:foldl(fun parse_part/2, #pushy_header{}, HeaderParts).
+    lists:foldl(fun parse_part/2, #pushy_header{version=no_version, method=unknown, signature = <<>>}, HeaderParts).
 
 %%
 %% Parse the json body of the message
@@ -105,11 +120,14 @@ parse_header(Header) ->
 parse_body(#pushy_message{validated = ok_sofar,
                     raw=Raw} = Message) ->
     try jiffy:decode(Raw) of
-         {Data} ->
+        {error, Error} ->
+            ?debugVal(Error),
+            Message#pushy_message{validated = parse_fail};
+        Data ->
             Message#pushy_message{body = Data}
     catch
-        exit:_Error ->
-            lager:error("JSON parsing failed with error: ~s", [error]),
+        throw:Error ->
+            lager:error("JSON parsing failed with throw: ~w", [Error]),
             Message#pushy_message{validated = parse_fail}
     end;
 parse_body(Message) -> Message.
@@ -156,21 +174,21 @@ validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
                                   raw = Raw, body = EJson} = Message,
                    KeyFetch) ->
-    case is_signature_valid(Header, Raw, EJson, KeyFetch) of 
+    case is_signature_valid(Header, Raw, EJson, KeyFetch) of
         true -> Message#pushy_message{validated = ok_sofar};
         _Else ->
 
-            Message#pushy_message{validated={fail, bad_sig}}
+            Message#pushy_message{validated=bad_sig}
     end;
-validate_signature(Message, _KeyFetch) -> Message.
+validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 
 
 finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
-    Message#pushy_message{validated = ok}.
-
+    Message#pushy_message{validated = ok};
+finalize_msg(#pushy_message{} = Message) -> Message.
 
 %%
-%% Message generation  
+%% Message generation
 %%
 -spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
 make_message(Proto, rsa2048_sha1, Key, EJson) when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
