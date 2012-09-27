@@ -23,6 +23,8 @@
 -include("pushy_messaging.hrl").
 -include("pushy_metrics.hrl").
 
+-define(MAX_HEADER_SIZE, 2048).
+-define(MAX_BODY_SIZE, 65536).
 
 %% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a message is all or nothing, I don't
 %% know if there is any possibility of frames of different messages being interleaved.
@@ -62,9 +64,16 @@ parse_message(Header, Body, KeyFetch) ->
 %% Build a message record for the various parse and validation stages to process
 %%
 -spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #pushy_message{}.
+
+%% Complicate attempts to DOS using too large packets
+build_message_record(_Address, Header, _Body) when size(Header) > ?MAX_HEADER_SIZE ->
+    #pushy_message{validated = header_to_big};
+build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE ->
+    #pushy_message{validated = body_to_big};
 build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
     lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
+
     case parse_header(Header) of
         #pushy_header{version=unknown} ->
             #pushy_message{validated = bad_header};
