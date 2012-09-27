@@ -48,7 +48,7 @@ receive_message_async(Socket, Frame) ->
     receive_frame_list(Socket, [Frame]).
 
 
--spec parse_message(binary(), binary(), pushy_key_fetch_fn()) -> #pushy_message{}.
+-spec parse_message(binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
 parse_message(Header, Body, KeyFetch) ->
     Msg1 = build_message_record(none, Header, Body),
     Msg2 = parse_body(Msg1),
@@ -185,8 +185,8 @@ validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 
 finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
     {ok, Message#pushy_message{validated = ok}};
-finalize_msg(#pushy_message{} = Message) -> 
-    {fail, Message}
+finalize_msg(#pushy_message{} = Message) ->
+    {error, Message}.
 
 %%
 %% Message generation

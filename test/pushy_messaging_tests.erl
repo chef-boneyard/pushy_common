@@ -65,43 +65,43 @@ parse_message_test_() ->
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
-               R = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
                ?assertEqual({pushy_header, proto_v2, hmac_sha256, <<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>}, R#pushy_message.parsed_header),
                ?assertEqual(EJson, R#pushy_message.body)
        end},
       {"parse an empty header",
        fun() ->
-               R = pushy_messaging:parse_message(<<"">>, <<"">>, KeyFetch),
+               {error, R} = pushy_messaging:parse_message(<<"">>, <<"">>, KeyFetch),
                ?assertMatch(#pushy_message{validated = bad_header}, R)
        end},
       {"parse a garbage header 1",
        fun() ->
-               R = (pushy_messaging:parse_message(<<"asdfasdfasd">>, <<"">>, KeyFetch)),
+               {error, R} = (pushy_messaging:parse_message(<<"asdfasdfasd">>, <<"">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_header}, R)
        end},
       {"parse a broken header (ignore bad key)",
        fun() ->
-               R = (pushy_messaging:parse_message(<<Header/binary,";asdfasdfasd:fooaste">>, Body, KeyFetch)),
+               {ok, R} = (pushy_messaging:parse_message(<<Header/binary,";asdfasdfasd:fooaste">>, Body, KeyFetch)),
                ?assertMatch(#pushy_message{validated = ok}, R)
        end},
       {"parse an empty body",
        fun() ->
-               R = (catch pushy_messaging:parse_message(Header, <<"">>, KeyFetch)),
+               {error, R} = (catch pushy_messaging:parse_message(Header, <<"">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = parse_fail}, R)
        end},
       {"parse a body that isn't json",
        fun() ->
-               R = (catch pushy_messaging:parse_message(Header, <<"asdfasd">>, KeyFetch)),
+               {error, R} = (catch pushy_messaging:parse_message(Header, <<"asdfasd">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = parse_fail}, R)
        end},
       {"parse a message whose body doesn't match header sig (short)",
        fun() ->
-               R = (catch pushy_messaging:parse_message(Header, <<"{}">>, KeyFetch)),
+               {error, R} = (catch pushy_messaging:parse_message(Header, <<"{}">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
        end},
       {"parse a message whose body doesn't match header sig",
        fun() ->
-               R = (catch pushy_messaging:parse_message(Header, jiffy:encode(mk_ejson_med_blob()), KeyFetch)),
+               {error, R} = (catch pushy_messaging:parse_message(Header, jiffy:encode(mk_ejson_med_blob()), KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
        end}
      ]}.
