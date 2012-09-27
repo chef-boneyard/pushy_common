@@ -106,6 +106,8 @@ parse_part(<<"SigningMethod:",_>>, Record) ->
     Record#pushy_header{method = unknown};
 parse_part(<<"Signature:",Signature/binary>>, Record) ->
     Record#pushy_header{signature = Signature};
+parse_part(<<"SignedChecksum:",Signature/binary>>, Record) ->
+    Record#pushy_header{signature = Signature};
 %% We are generous what we accept, in that they ignore unknown fields
 parse_part(_, Record) ->
     Record.
