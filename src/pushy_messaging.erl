@@ -184,8 +184,9 @@ validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 
 
 finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
-    Message#pushy_message{validated = ok};
-finalize_msg(#pushy_message{} = Message) -> Message.
+    {ok, Message#pushy_message{validated = ok}};
+finalize_msg(#pushy_message{} = Message) -> 
+    {fail, Message}
 
 %%
 %% Message generation
