@@ -159,29 +159,35 @@ is_signature_valid(#pushy_header{version=unknown}, _, _, _) ->
     false;
 is_signature_valid(#pushy_header{version=Proto, method=rsa2048_sha1=M, signature=Sig}, Body, EJson, KeyFetch)
   when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
-    {ok, Key} = KeyFetch(M, EJson),
-    Decrypted = decrypt_sig(Sig, Key),
-    case chef_authn:hash_string(Body) of
-        Decrypted -> true;
-        _Else ->
-            lager:error("Validation failed sig provided ~s expected ~s~n", [Decrypted, _Else]),
-            pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1)
+    case envy:get(pushy, skip_header_validation, false, boolean) of
+        true -> true;
+        _ ->
+            {ok, Key} = KeyFetch(M, EJson),
+            Decrypted = decrypt_sig(Sig, Key),
+            case chef_authn:hash_string(Body) of
+                Decrypted -> true;
+                _Else ->
+                    lager:error("Validation failed sig provided ~s expected ~s~n", [Decrypted, _Else]),
+                    envy:get(pushy, ignore_signature_check, false, boolean)
+            end
     end;
 is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signature=Sig}, Body, EJson, KeyFetch) ->
-    {ok, Key} = KeyFetch(M, EJson),
-    HMAC = hmac:hmac256(Key, Body),
-    ExpectedSignature = base64:encode(HMAC),
-    case Sig of
-        ExpectedSignature -> true;
-        _Else ->
-            lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, _Else]),
-            pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1)
-    end;
+    case envy:get(pushy, skip_header_validation, false, boolean) of
+        true -> true;
+        _ ->
+            {ok, Key} = KeyFetch(M, EJson),
+            HMAC = hmac:hmac256(Key, Body),
+            ExpectedSignature = base64:encode(HMAC),
+            case Sig of
+                ExpectedSignature -> true;
+                _Else ->
+                    lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, _Else]),
+                    envy:get(pushy, ignore_signature_check, false, boolean)
+            end
+        end;
 is_signature_valid(Signature, _, _, _) ->
     lager:error("Can't handle signature ~w~n",[Signature]),
     false.
-
-
 
 validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
