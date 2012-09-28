@@ -115,8 +115,6 @@ parse_rsa_message_test_() ->
      ]}.
 
 parse_bad_message_test_() ->
-    EJson = mk_ejson_blob(),
-%    JSon = jiffy:encode(EJson),
     Hmac_sha256_key = <<"01234567890123456789012345678901">>, 
     [Header, Body] = mk_v2_hmac_msg(),
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
