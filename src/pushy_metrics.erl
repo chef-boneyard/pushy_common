@@ -69,9 +69,9 @@ label(BadPrefix, Fun) ->
 %% Send a metric using the metrics module from application config or
 %% do nothing.
 send(Name, Value, Type) ->
-    case application:get_env(pushy_common, metrics_module) of
+    case envy:get(pushy_common, metrics_module, undefined, atom) of
         undefined -> ok;
-        {ok, Mod} -> Mod:notify(Name, Value, Type)
+        Mod -> Mod:notify(Name, Value, Type)
     end,
     ok.
 
