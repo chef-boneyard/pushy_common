@@ -14,7 +14,8 @@
          parse_message/3,
 
          signed_header_from_message/3,
-         make_message/4
+         make_message/4,
+         make_header/4
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -26,8 +27,9 @@
 -define(MAX_HEADER_SIZE, 2048).
 -define(MAX_BODY_SIZE, 65536).
 
-%% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a message is all or nothing, I don't
-%% know if there is any possibility of frames of different messages being interleaved.
+%% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a
+%% message is all or nothing, I don't know if there is any possibility of frames of
+%% different messages being interleaved.
 %%
 %% List is accumulated in reverse
 receive_frame_list(Socket, List) ->
@@ -203,15 +205,18 @@ finalize_msg(#pushy_message{} = Message) ->
 %% Message generation
 %%
 -spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
-make_message(Proto, rsa2048_sha1, Key, EJson) when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
-    %% Only supports rsa2048_sha1
+make_message(Proto, Method, Key, EJson) ->
     Json = jiffy:encode(EJson),
-    Header = signed_header_from_message(Proto, Key, Json),
-    [Header, Json];
-make_message(proto_v2, hmac_sha256, Key, EJson) ->
-    Json = jiffy:encode(EJson),
-    Header = signed_header_from_message(proto_v2, Key, Json),
+    Header = make_header(Proto, Method, Key, Json),
     [Header, Json].
+
+-spec make_header(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+make_header(Proto, rsa2048_sha1, Key, Json) when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
+    %% Only supports rsa2048_sha1
+    signed_header_from_message(Proto, Key, Json);
+make_header(proto_v2, hmac_sha256, Key, Json) ->
+    signed_header_from_message(proto_v2, Key, Json).
+
 
 signed_header_from_message(Proto, {hmac_sha256, Key}, Body) ->
     HMAC = hmac:hmac256(Key, Body),
