@@ -134,7 +134,7 @@ parse_body(#pushy_message{validated = ok_sofar,
                     raw=Raw} = Message) ->
     try jiffy:decode(Raw) of
         {error, Error} ->
-            ?debugVal(Error),
+            lager:error("JSON parsing failed with error: ~w", [Error]),
             Message#pushy_message{validated = parse_fail};
         Data ->
             Message#pushy_message{body = Data}
