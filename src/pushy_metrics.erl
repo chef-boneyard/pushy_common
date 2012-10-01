@@ -69,7 +69,7 @@ label(BadPrefix, Fun) ->
 %% Send a metric using the metrics module from application config or
 %% do nothing.
 send(Name, Value, Type) ->
-    case application:get_env(pushy, metrics_module) of
+    case application:get_env(pushy_common, metrics_module) of
         undefined -> ok;
         {ok, Mod} -> Mod:notify(Name, Value, Type)
     end,
