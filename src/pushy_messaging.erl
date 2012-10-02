@@ -76,8 +76,10 @@ parse_message(Address, Header, Body, KeyFetch) ->
 
 %% Complicate attempts to DOS using too large packets
 build_message_record(_Address, Header, _Body) when size(Header) > ?MAX_HEADER_SIZE ->
+    lager:error("Message rejected because header is too big ~s > ~s", [size(Header), ?MAX_HEADER_SIZE]),
     #pushy_message{validated = header_to_big};
 build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE ->
+    lager:error("Message rejected because body is too big ~s > ~s", [size(Body), ?MAX_BODY_SIZE]),
     #pushy_message{validated = body_to_big};
 build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
