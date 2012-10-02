@@ -35,10 +35,11 @@ label(pushysim_client, send_heartbeat) ->
     label('messaging', heartbeat);
 label(pushysim_client, send_response) ->
     label('messaging', send);
-label(pushy_util, signed_header_from_message) ->
-    label(send, gen_sig);
-label(pushy_util, do_authenticate_message) ->
-    label('receive', verify_sig);
+label(jiffy, encode) ->
+    label('messaging', send);
+label(jiffy, decode) ->
+    label('messaging', recv);
+
 label(pushy_heartbeat_generator, do_send) ->
     label(send, all);
 label(pushy_command_switch, do_send) ->
