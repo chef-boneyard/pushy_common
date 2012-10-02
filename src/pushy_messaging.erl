@@ -258,7 +258,39 @@ proto_to_bin(proto_v2) ->
     <<"2.0">>.
 
 %%%
+%%% Bulk message generation
 %%%
+make_send_message_multi(Socket, Proto, rsa2048_sha1 = Method, NameList, EJson, NameToAddrF, NameToKeyF) ->
+    make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF);
+make_send_message_multi(Socket, Proto, hmac_sha256 = Method, NameList, EJson, NameToAddrF, NameToKeyF) ->
+    make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF).
+
+%%
+%% With pubkey methods we only have to sign once
+%%
+make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
+      is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
+    Key = (catch NameToKeyF(Method, any)),
+    make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key);
+make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key) ->
+    Json = jiffy:encode(EJson),
+    Header = make_header(Proto, Method, Key, Json),
+    [send_message(Socket,
+                  [ NameToAddrF(Name), Header, Json ]) ||
+     Name <- NameList].
+
+%%
+%% Private key methods need a different sign for each recipient
+%%
+make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
+      is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
+    Json = jiffy:encode(EJson),
+    catch [send_message(Socket,
+                  [ NameToAddrF(Name), make_header(Proto, Method, NameToKeyF(Proto, Name), Json),  Json ]) ||
+     Name <- NameList].
+
+%%%
+%%% Low level transmission routines.
 %%%
 send_message(_Socket, []) ->
     ok;
