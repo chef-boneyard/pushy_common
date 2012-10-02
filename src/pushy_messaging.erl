@@ -11,6 +11,8 @@
          parse_message/3,
          parse_message/4,
 
+         is_signature_valid/4,
+
          signed_header_from_message/3,
          make_message/4,
          make_header/4,
@@ -140,10 +142,11 @@ parse_header(Header) ->
 %% Parse the json body of the message
 %%
 parse_body(#pushy_message{validated = ok_sofar,
-                    raw=Raw} = Message) ->
-    try jiffy:decode(Raw) of
+                          id = Id,
+                          raw=Raw} = Message) ->
+    try ?TIME_IT(jiffy, decode, (Raw)) of
         {error, Error} ->
-            lager:error("JSON parsing failed with error: ~w", [Error]),
+            lager:error("JSON parsing of msg id ~s failed with error: ~w", [Id, Error]),
             Message#pushy_message{validated = parse_fail};
         Data ->
             Message#pushy_message{body = Data}
@@ -202,7 +205,7 @@ validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
                                   raw = Raw, body = EJson} = Message,
                    KeyFetch) ->
-    case is_signature_valid(Header, Raw, EJson, KeyFetch) of
+    case ?TIME_IT(?MODULE, is_signature_valid, (Header, Raw, EJson, KeyFetch)) of
         true -> Message#pushy_message{validated = ok_sofar};
         _Else ->
 
@@ -221,8 +224,8 @@ finalize_msg(#pushy_message{} = Message) ->
 %%
 -spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
 make_message(Proto, Method, Key, EJson) ->
-    Json = jiffy:encode(EJson),
-    Header = make_header(Proto, Method, Key, Json),
+    Json = ?TIME_IT(jiffy, encode,(EJson)),
+    Header = ?TIME_IT(?MODULE, make_header, (Proto, Method, Key, Json)),
     [Header, Json].
 
 -spec make_header(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
