@@ -8,14 +8,16 @@
 
 -export([
          receive_message_async/2,
-         send_message/2,
-         send_message_multi/3,
-
          parse_message/3,
+         parse_message/4,
 
          signed_header_from_message/3,
          make_message/4,
-         make_header/4
+         make_header/4,
+
+         make_send_message_multi/7,
+         send_message/2,
+         send_message_multi/3
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -52,9 +54,14 @@ receive_message_async(Socket, Frame) ->
     receive_frame_list(Socket, [Frame]).
 
 
+
 -spec parse_message(binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
 parse_message(Header, Body, KeyFetch) ->
-    Msg1 = build_message_record(none, Header, Body),
+    parse_message(none, Header, Body, KeyFetch).
+
+-spec parse_message(binary(), binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
+parse_message(Address, Header, Body, KeyFetch) ->
+    Msg1 = build_message_record(Address, Header, Body),
     Msg2 = parse_body(Msg1),
 %    lager:error("Processed msg (2) ~p ~p", [Msg2#pushy_message.validated, Msg2#pushy_message.body]),
     Msg3 = validate_signature(Msg2,KeyFetch),
@@ -222,7 +229,6 @@ make_header(Proto, rsa2048_sha1, Key, Json) when Proto =:= proto_v1 orelse Proto
     signed_header_from_message(Proto, Key, Json);
 make_header(proto_v2, hmac_sha256, Key, Json) ->
     signed_header_from_message(proto_v2, Key, Json).
-
 
 signed_header_from_message(Proto, {hmac_sha256, Key}, Body) ->
     HMAC = hmac:hmac256(Key, Body),
