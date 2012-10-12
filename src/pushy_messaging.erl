@@ -13,7 +13,6 @@
 
          is_signature_valid/4,
 
-         signed_header_from_message/3,
          make_message/4,
          make_header/4,
 
@@ -249,21 +248,15 @@ make_message(Proto, Method, Key, EJson) ->
     [Header, Json].
 
 -spec make_header(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
-make_header(Proto, rsa2048_sha1, Key, Json) when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
-    %% Only supports rsa2048_sha1
-    signed_header_from_message(Proto, Key, Json);
-make_header(proto_v2, hmac_sha256, Key, Json) ->
-    signed_header_from_message(proto_v2, Key, Json).
-
-signed_header_from_message(Proto, {hmac_sha256, Key}, Body) ->
+make_header(Proto, hmac_sha256, Key, Body) ->
     HMAC = hmac:hmac256(Key, Body),
     SignedChecksum = base64:encode(HMAC),
     create_headers(Proto, hmac_sha256, SignedChecksum);
-signed_header_from_message(Proto, PrivateKey, Body) ->
+make_header(Proto, rsa2048_sha1, Key, Body) ->
     %% TODO Find better way of enforcing this
-    ['RSAPrivateKey' | _ ] = tuple_to_list(PrivateKey),
+    ['RSAPrivateKey' | _ ] = tuple_to_list(Key),
     HashedBody = chef_authn:hash_string(Body),
-    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, PrivateKey)),
+    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, Key)),
     create_headers(Proto, rsa2048_sha1, SignedChecksum).
 
 create_headers(Proto, Method, Sig) ->
@@ -301,7 +294,7 @@ make_send_message_multi(Socket, Proto, hmac_sha256 = Method, NameList, EJson, Na
 %%
 make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
       is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
-    Key = (catch NameToKeyF(Method, any)),
+    Key = NameToKeyF(Method, any),
     make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key);
 make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key) ->
     Json = jiffy:encode(EJson),
@@ -316,9 +309,9 @@ make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAd
 make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
       is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
     Json = jiffy:encode(EJson),
-    catch [send_message(Socket,
-                  [ NameToAddrF(Name), make_header(Proto, Method, NameToKeyF(Proto, Name), Json),  Json ]) ||
-     Name <- NameList].
+    [send_message(Socket,
+                  [ NameToAddrF(Name), make_header(Proto, Method, NameToKeyF(Method, Name), Json),  Json ]) ||
+        Name <- NameList].
 
 %%%
 %%% Low level transmission routines.
