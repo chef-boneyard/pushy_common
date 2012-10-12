@@ -190,16 +190,36 @@ is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signatu
             {ok, Key} = KeyFetch(M, EJson),
             HMAC = hmac:hmac256(Key, Body),
             ExpectedSignature = base64:encode(HMAC),
-            case Sig of
-                ExpectedSignature -> true;
+            case compare_in_constant_time(Sig, ExpectedSignature) of
+                0 -> true;
                 _Else ->
-                    lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, _Else]),
+                    lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, Sig]),
                     envy:get(pushy, ignore_signature_check, false, boolean)
             end
         end;
 is_signature_valid(Signature, _, _, _) ->
     lager:error("Can't handle signature ~w~n",[Signature]),
     false.
+
+%%
+%% We leak information if we early out a string compare at first difference; this could be used
+%% to compute a valid signature for a term.
+%% Alternately we could compute the sha of each and compare, which converts a timing attack into
+%% a preimage attack. Computing the sha would take about 12ms on a modern processor...
+%%
+%% It's ok to quit early if they are diffent lengths
+compare_in_constant_time(<<Bin1/binary>>, <<Bin2/binary>>) when
+      byte_size(Bin1) /= byte_size(Bin2) ->
+    1;
+compare_in_constant_time(<<Bin1/binary>>, <<Bin2/binary>>) ->
+    compare_in_constant_time(Bin1, Bin2, 0).
+
+compare_in_constant_time(<<H1,T1/binary>>, <<H2, T2/binary>>, Acc) ->
+    compare_in_constant_time(T1, T2, (H1 bxor H2) bor Acc);
+compare_in_constant_time(<<>>, <<>>, Acc) ->
+    Acc.
+
+
 
 validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
