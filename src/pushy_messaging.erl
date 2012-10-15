@@ -8,15 +8,17 @@
 
 -export([
          receive_message_async/2,
+         parse_message/3,
+         parse_message/4,
+
+         is_signature_valid/4,
+
+         make_message/4,
+         make_header/4,
+
+         make_send_message_multi/7,
          send_message/2,
-         send_message_multi/3,
-
-
-         parse_receive_message/3,
-         send_message_record/2,
-
-
-         build_outgoing_message/2
+         send_message_multi/3
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -25,11 +27,12 @@
 -include("pushy_messaging.hrl").
 -include("pushy_metrics.hrl").
 
+-define(MAX_HEADER_SIZE, 2048).
+-define(MAX_BODY_SIZE, 65536).
 
-
-
-%% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a message is all or nothing, I don't
-%% know if there is any possibility of frames of different messages being interleaved.
+%% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a
+%% message is all or nothing, I don't know if there is any possibility of frames of
+%% different messages being interleaved.
 %%
 %% List is accumulated in reverse
 receive_frame_list(Socket, List) ->
@@ -52,60 +55,104 @@ receive_message_async(Socket, Frame) ->
     receive_frame_list(Socket, [Frame]).
 
 
--spec parse_receive_message(Socket::erlzmq_socket_type(), Frame::binary(), SigValidator::fun()) ->
-                                   #message{}.
-parse_receive_message(Socket, Frame, _SigValidator) ->
-    Msg1 = case receive_frame_list(Socket, [Frame]) of
-              [Header, Body] -> build_message_record(none, Header, Body);
-              [Address, Header, Body] -> build_message_record(Address, Header, Body)
-          end,
+
+-spec parse_message(binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
+parse_message(Header, Body, KeyFetch) ->
+    parse_message(none, Header, Body, KeyFetch).
+
+-spec parse_message(binary(), binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
+parse_message(Address, Header, Body, KeyFetch) ->
+    Msg1 = build_message_record(Address, Header, Body),
     Msg2 = parse_body(Msg1),
-%    lager:error("Processed msg (2) ~p ~p", [Msg2#message.validated, Msg2#message.body]),
-    Msg3 = validate_signature(Msg2),
-%    lager:error("Processed msg (3) ~p ~p", [Msg3#message.validated, Msg3#message.body]),
+%    lager:error("Processed msg (2) ~p ~p", [Msg2#pushy_message.validated, Msg2#pushy_message.body]),
+    Msg3 = validate_signature(Msg2,KeyFetch),
+%    lager:error("Processed msg (3) ~p ~p", [Msg3#pushy_message.validated, Msg3#pushy_message.body]),
     finalize_msg(Msg3).
 
 
 %%
 %% Build a message record for the various parse and validation stages to process
 %%
--spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #message{}.
-build_message_record(Address, Header, Body) ->
+-spec build_message_record(Address::binary() | none, Header::binary(), Body::binary()) -> #pushy_message{}.
+
+%% Complicate attempts to DOS using too large packets
+build_message_record(_Address, Header, _Body) when size(Header) > ?MAX_HEADER_SIZE ->
+    lager:error("Message rejected because header is too big ~s > ~s", [size(Header), ?MAX_HEADER_SIZE]),
+    #pushy_message{validated = header_to_big};
+build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE ->
+    lager:error("Message rejected because body is too big ~s > ~s", [size(Body), ?MAX_BODY_SIZE]),
+    #pushy_message{validated = body_to_big};
+build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
-    {Version, SignedChecksum} = parse_header(Header),
     lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
-    #message{validated = ok_sofar,
-             id = Id,
-             address = Address,
-             version = Version,
-             signature = SignedChecksum,
-             raw = Body
-            }.
+
+    case parse_header(Header) of
+        #pushy_header{version=unknown} ->
+            #pushy_message{validated = bad_header};
+        #pushy_header{version=no_version} ->
+            #pushy_message{validated = bad_header};
+        #pushy_header{} = HeaderRecord ->
+            #pushy_message{validated = ok_sofar,
+                           id = Id,
+                           address = Address,
+                           header = Header,
+                           raw = Body,
+                           parsed_header = HeaderRecord
+                          }
+    end;
+build_message_record(A,H,B) ->
+    #pushy_message{validated = bad_input,
+                  address = A,
+                  header = H,
+                  raw = B}.
 
 len_h(none) -> 0;
 len_h(B) when is_binary(B) -> erlang:byte_size(B).
 
 
 %%
+%% Parse various portions of the header
 %%
-%%
+parse_part(<<"Version:","1.0">>, Record) ->
+    Record#pushy_header{version = proto_v1};
+parse_part(<<"Version:","2.0">>, Record) ->
+    Record#pushy_header{version = proto_v2};
+parse_part(<<"Version:",_/binary>>, Record) ->
+    Record#pushy_header{version = unknown};
+parse_part(<<"SigningMethod:","hmac_sha256">>, Record) ->
+    Record#pushy_header{method = hmac_sha256};
+parse_part(<<"SigningMethod:","rsa2048_sha1">>, Record) ->
+    Record#pushy_header{method = rsa2048_sha1};
+parse_part(<<"SigningMethod:",_>>, Record) ->
+    Record#pushy_header{method = unknown};
+parse_part(<<"Signature:",Signature/binary>>, Record) ->
+    Record#pushy_header{signature = Signature};
+parse_part(<<"SignedChecksum:",Signature/binary>>, Record) ->
+    Record#pushy_header{signature = Signature};
+%% We are generous what we accept, in that they ignore unknown fields
+parse_part(_, Record) ->
+    Record.
+
 parse_header(Header) ->
-    HeaderParts = re:split(Header, <<":|;">>),
-    {_version, Version, _signed_checksum, SignedChecksum} = list_to_tuple(HeaderParts),
-    {Version, SignedChecksum}.
+    HeaderParts = re:split(Header, <<";">>),
+    lists:foldl(fun parse_part/2, #pushy_header{version=no_version, method=unknown, signature = <<>>}, HeaderParts).
 
 %%
 %% Parse the json body of the message
 %%
-parse_body(#message{validated = ok_sofar,
-                    raw=Raw} = Message) ->
-    try jiffy:decode(Raw) of
-         {Data} ->
-            Message#message{body = Data}
+parse_body(#pushy_message{validated = ok_sofar,
+                          id = Id,
+                          raw=Raw} = Message) ->
+    try ?TIME_IT(jiffy, decode, (Raw)) of
+        {error, Error} ->
+            lager:error("JSON parsing of msg id ~s failed with error: ~w", [Id, Error]),
+            Message#pushy_message{validated = parse_fail};
+        Data ->
+            Message#pushy_message{body = Data}
     catch
-        exit:_Error ->
-            lager:error("JSON parsing failed with error: ~s", [error]),
-            Message#message{validated = parse_fail}
+        throw:Error ->
+            lager:error("JSON parsing failed with throw: ~w", [Error]),
+            Message#pushy_message{validated = parse_fail}
     end;
 parse_body(Message) -> Message.
 
@@ -118,74 +165,157 @@ decrypt_sig(Sig, {'RSAPublicKey', _, _} = PK) ->
             decrypt_failed
     end.
 
-validate_signature(#message{validated = ok_sofar,
-                            signature = SignedChecksum, version = _Version,
-                            raw = Raw, body = _Body} = Message) ->
-    %% TODO - query DB for public key of each client
-    {ok, PublicKey} = chef_keyring:get_key(client_public),
-%    Decrypted = ?TIME_IT(?MODULE, decrypt_sig, (SignedChecksum, PublicKey)),
-    Decrypted = decrypt_sig(SignedChecksum, PublicKey),
-    case chef_authn:hash_string(Raw) of
-        Decrypted -> Message;
-        _Else ->
-            case pushy_util:get_env(pushy, ignore_signature_check, false, fun is_boolean/1) of
-                true -> ok;
-                false ->
-                    lager:error("Validation failed ~s ~s~n", [Decrypted, _Else]),
-                    Message#message{validated={fail, bad_sig}}
+is_signature_valid(#pushy_header{version=unknown}, _, _, _) ->
+    lager:error("Unknown header type~n",[]),
+    false;
+is_signature_valid(#pushy_header{version=Proto, method=rsa2048_sha1=M, signature=Sig}, Body, EJson, KeyFetch)
+  when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
+    case envy:get(pushy, skip_header_validation, false, boolean) of
+        true -> true;
+        _ ->
+            {ok, Key} = KeyFetch(M, EJson),
+            Decrypted = decrypt_sig(Sig, Key),
+            case chef_authn:hash_string(Body) of
+                Decrypted -> true;
+                _Else ->
+                    lager:error("Validation failed sig provided ~s expected ~s~n", [Decrypted, _Else]),
+                    envy:get(pushy, ignore_signature_check, false, boolean)
+            end
+    end;
+is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signature=Sig}, Body, EJson, KeyFetch) ->
+    case envy:get(pushy, skip_header_validation, false, boolean) of
+        true -> true;
+        _ ->
+            {ok, Key} = KeyFetch(M, EJson),
+            HMAC = hmac:hmac256(Key, Body),
+            ExpectedSignature = base64:encode(HMAC),
+            case compare_in_constant_time(Sig, ExpectedSignature) of
+                0 -> true;
+                _Else ->
+                    lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, Sig]),
+                    envy:get(pushy, ignore_signature_check, false, boolean)
             end
         end;
-validate_signature(Message) -> Message.
-
-
-finalize_msg(#message{validated = ok_sofar} = Message) ->
-    Message#message{validated = ok}.
-
-
+is_signature_valid(Signature, _, _, _) ->
+    lager:error("Can't handle signature ~w~n",[Signature]),
+    false.
 
 %%
+%% We leak information if we early out a string compare at first difference; this could be used
+%% to compute a valid signature for a term.
+%% Alternately we could compute the sha of each and compare, which converts a timing attack into
+%% a preimage attack. Computing the sha would take about 12ms on a modern processor...
 %%
+%% It's ok to quit early if they are diffent lengths
+compare_in_constant_time(<<Bin1/binary>>, <<Bin2/binary>>) when
+      byte_size(Bin1) /= byte_size(Bin2) ->
+    1;
+compare_in_constant_time(<<Bin1/binary>>, <<Bin2/binary>>) ->
+    compare_in_constant_time(Bin1, Bin2, 0).
+
+compare_in_constant_time(<<H1,T1/binary>>, <<H2, T2/binary>>, Acc) ->
+    compare_in_constant_time(T1, T2, (H1 bxor H2) bor Acc);
+compare_in_constant_time(<<>>, <<>>, Acc) ->
+    Acc.
+
+
+
+validate_signature(#pushy_message{validated = ok_sofar,
+                                  parsed_header = Header,
+                                  raw = Raw, body = EJson} = Message,
+                   KeyFetch) ->
+    case ?TIME_IT(?MODULE, is_signature_valid, (Header, Raw, EJson, KeyFetch)) of
+        true -> Message#pushy_message{validated = ok_sofar};
+        _Else ->
+
+            Message#pushy_message{validated=bad_sig}
+    end;
+validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
+
+
+finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
+    {ok, Message#pushy_message{validated = ok}};
+finalize_msg(#pushy_message{} = Message) ->
+    {error, Message}.
+
 %%
+%% Message generation
+%%
+-spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+make_message(Proto, Method, Key, EJson) ->
+    Json = ?TIME_IT(jiffy, encode,(EJson)),
+    Header = ?TIME_IT(?MODULE, make_header, (Proto, Method, Key, Json)),
+    [Header, Json].
+
+-spec make_header(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+make_header(Proto, hmac_sha256, Key, Body) ->
+    HMAC = hmac:hmac256(Key, Body),
+    SignedChecksum = base64:encode(HMAC),
+    create_headers(Proto, hmac_sha256, SignedChecksum);
+make_header(Proto, rsa2048_sha1, Key, Body) ->
+    %% TODO Find better way of enforcing this
+    ['RSAPrivateKey' | _ ] = tuple_to_list(Key),
+    HashedBody = chef_authn:hash_string(Body),
+    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, Key)),
+    create_headers(Proto, rsa2048_sha1, SignedChecksum).
+
+create_headers(Proto, Method, Sig) ->
+    Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, proto_to_bin(Proto)},
+                                                                   {<<"SigningMethod">>, atom_to_binary(Method, utf8)},
+                                                                   {<<"Signature">>, Sig}]],
+    join_bins(Headers, <<";">>).
+
+join_bins([], _Sep) ->
+    <<>>;
+join_bins(Bins, Sep) when is_binary(Sep) ->
+    join_bins(Bins, Sep, []).
+
+join_bins([B], _Sep, Acc) ->
+    iolist_to_binary(lists:reverse([B|Acc]));
+join_bins([B|Rest], Sep, Acc) ->
+    join_bins(Rest, Sep, [Sep, B | Acc]).
 
 
--spec send_message_record(Socket::erlzmq_socket_type(), Message::#message{} ) -> ok.
-send_message_record(Socket, #message{address=none, header=Header, raw=Body}) ->
-    send_message(Socket, [Header, Body]);
-send_message_record(Socket, #message{address=Address, header=Header, raw=Body}) ->
-    send_message(Socket, [Address, Header, Body]).
+proto_to_bin(proto_v1) ->
+    <<"1.0">>;
+proto_to_bin(proto_v2) ->
+    <<"2.0">>.
+
+%%%
+%%% Bulk message generation
+%%%
+make_send_message_multi(Socket, Proto, rsa2048_sha1 = Method, NameList, EJson, NameToAddrF, NameToKeyF) ->
+    make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF);
+make_send_message_multi(Socket, Proto, hmac_sha256 = Method, NameList, EJson, NameToAddrF, NameToKeyF) ->
+    make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF).
 
 %%
-%% build_message_record
+%% With pubkey methods we only have to sign once
 %%
--spec build_outgoing_message(Version::atom(), JsonBody::json_term()) -> #message{}.
-build_outgoing_message(version_1, JsonBody) ->
-    Msg0 = #message{validated = json_only,
-                    id = make_ref(),
-                    address = none,
-                    header = none,
-                    raw = none,
-                    version = none,
-                    signature = none,
-                    body = JsonBody},
-    Msg1 = encode_json(Msg0),
-    sign_msg(Msg1).
+make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
+      is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
+    Key = NameToKeyF(Method, any),
+    make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key);
+make_send_message_multi_pub_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, Key) ->
+    Json = jiffy:encode(EJson),
+    Header = make_header(Proto, Method, Key, Json),
+    [send_message(Socket,
+                  [ NameToAddrF(Name), Header, Json ]) ||
+     Name <- NameList].
 
+%%
+%% Private key methods need a different sign for each recipient
+%%
+make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToAddrF, NameToKeyF) when
+      is_function(NameToAddrF) andalso is_function(NameToKeyF) ->
+    Json = jiffy:encode(EJson),
+    [send_message(Socket,
+                  [ NameToAddrF(Name), make_header(Proto, Method, NameToKeyF(Method, Name), Json),  Json ]) ||
+        Name <- NameList].
 
-encode_json(#message{validated=json_only, body=Body}=Msg) ->
-    try
-        Raw = jiffy:encode(Body),
-        Msg#message{validated = raw_encoded,
-                    raw = Raw}
-    catch
-        error:Error ->
-            Msg#message{validated = Error}
-    end.
-
-sign_msg(Msg) ->
-    Msg.
-
-
-
+%%%
+%%% Low level transmission routines.
+%%%
 send_message(_Socket, []) ->
     ok;
 send_message(Socket, [Frame | [] ]) ->

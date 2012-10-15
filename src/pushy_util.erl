@@ -10,12 +10,11 @@
          make_zmq_socket_addr/1,
          make_zmq_socket_addr/2,
          make_zmq_socket_addr/3,
-         get_env/3,
-         get_env/4,
+         get_env/3, % deprecated
+         get_env/4, % deprecated
          read_body/0,
          do_authenticate_message/2,
          do_authenticate_message/3,
-         signed_header_from_message/2,
          rand_bytes/1,
          guid_v4/0,
          gen_req_id_using_rand/2,
@@ -25,7 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 make_zmq_socket_addr(Port) ->
-    Host = get_env(pushy, zeromq_listen_address, fun is_list/1),
+    Host = envy:get(pushy, zeromq_listen_address, string),
     make_zmq_socket_addr(Host, Port).
 
 make_zmq_socket_addr(Host, PortName, tcp) ->
@@ -34,44 +33,19 @@ make_zmq_socket_addr(Host, PortName, tcp) ->
 
 
 make_zmq_socket_addr(Host, PortName) when is_atom(PortName) ->
-    Port = get_env(pushy, PortName, fun is_integer/1),
+    Port = envy:get(pushy, PortName, integer),
     make_zmq_socket_addr(Host, Port);
 make_zmq_socket_addr(Host, Port) when is_integer(Port) ->
     lists:flatten(io_lib:format("~s:~w",[Host,Port])).
 
-get_env(Section, Item, any) ->
-    get_env(Section, Item, fun(_) -> true end);
+%%
+%% These are deprecated
+%%
 get_env(Section, Item, TypeCheck) ->
-    case application:get_env(Section, Item) of
-        {ok, Value} ->
-            case TypeCheck(Value) of
-                true -> Value;
-                Error ->
-                    lager:error("Bad typecheck for config item for ~p ~p (~p(~p) -> ~p)",
-                                           [Section, Item, TypeCheck, Value, Error]),
-                    error(config_bad_item)
-            end;
-        undefined ->
-            lager:error("Bad config item for ~p ~p ", [Section, Item]),
-            error(config_missing_item)
-    end.
+    envy:get(Section, Item, TypeCheck).
 
-
-get_env(Section, Item, Default, any) ->
-    get_env(Section, Item, Default, fun(_) -> true end);
 get_env(Section, Item, Default, TypeCheck) ->
-    case application:get_env(Section, Item) of
-        {ok, Value} ->
-            case TypeCheck(Value) of
-                true -> Value;
-                Error ->
-                    lager:error("Bad typecheck for config item for ~p ~p (~p(~p) -> ~p)",
-                                           [Section, Item, TypeCheck, Value, Error]),
-                    error(config_bad_item)
-            end;
-        undefined ->
-            Default
-    end.
+    envy:get(Section, Item, Default, TypeCheck).
 
 %%
 %% Factor out common packet handling methods
@@ -96,7 +70,7 @@ do_authenticate_message(Header, Body, PublicKey) ->
     case Decrypted of
         Plain -> ok;
         _Else ->
-            case get_env(pushy, ignore_signature_check, false, fun is_boolean/1) of
+            case envy:get(pushy, ignore_signature_check, false, boolean) of
                 true -> ok;
                 false -> {no_authn, bad_sig}
             end
@@ -116,24 +90,6 @@ signed_checksum_from_header(Header) ->
     {_version, _Version, _signed_checksum, SignedChecksum}
         = list_to_tuple(HeaderParts),
     SignedChecksum.
-
-%% ENCODE/ENCRYPT
-signed_header_from_message(PrivateKey, Body) ->
-    HashedBody = chef_authn:hash_string(Body),
-    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, PrivateKey)),
-    Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, <<"1.0">>},
-                    {<<"SignedChecksum">>, SignedChecksum}]],
-    join_bins(Headers, <<";">>).
-
-join_bins([], _Sep) ->
-    <<>>;
-join_bins(Bins, Sep) when is_binary(Sep) ->
-    join_bins(Bins, Sep, []).
-
-join_bins([B], _Sep, Acc) ->
-    iolist_to_binary(lists:reverse([B|Acc]));
-join_bins([B|Rest], Sep, Acc) ->
-    join_bins(Rest, Sep, [Sep, B | Acc]).
 
 
 %%% R15 introduces strong_rand_bytes, which is preferable, but we still need to work on older versions.

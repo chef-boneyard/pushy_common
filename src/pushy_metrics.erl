@@ -35,10 +35,11 @@ label(pushysim_client, send_heartbeat) ->
     label('messaging', heartbeat);
 label(pushysim_client, send_response) ->
     label('messaging', send);
-label(pushy_util, signed_header_from_message) ->
-    label(send, gen_sig);
-label(pushy_util, do_authenticate_message) ->
-    label('receive', verify_sig);
+label(jiffy, encode) ->
+    label('messaging', send);
+label(jiffy, decode) ->
+    label('messaging', recv);
+
 label(pushy_heartbeat_generator, do_send) ->
     label(send, all);
 label(pushy_command_switch, do_send) ->
@@ -69,9 +70,9 @@ label(BadPrefix, Fun) ->
 %% Send a metric using the metrics module from application config or
 %% do nothing.
 send(Name, Value, Type) ->
-    case application:get_env(pushy_common, metrics_module) of
+    case envy:get(pushy_common, metrics_module, undefined, atom) of
         undefined -> ok;
-        {ok, Mod} -> Mod:notify(Name, Value, Type)
+        Mod -> Mod:notify(Name, Value, Type)
     end,
     ok.
 
