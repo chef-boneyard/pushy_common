@@ -57,7 +57,8 @@ label(authn, _) ->
 label(Prefix, Fun) when Prefix =:= send;
                         Prefix =:= 'receive';
                         Prefix =:= 'config';
-                        Prefix =:= 'messaging' ->
+                        Prefix =:= 'messaging';
+                        Prefix =:= 'authn' ->
     PrefixBin = erlang:atom_to_binary(Prefix, utf8),
     FunBin = erlang:atom_to_binary(Fun, utf8),
     iolist_to_binary([PrefixBin, ".", FunBin]);
