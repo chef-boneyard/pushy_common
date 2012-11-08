@@ -7,8 +7,16 @@
 -type json_term() :: any().
 
 
--type pushy_message_version() :: 'proto_v1' | 'proto_v2' | 'unknown'.
--type pushy_signing_method() :: 'rsa2048_sha1' | 'hmac_sha256'.
+-type pushy_message_version() :: 'proto_v1' | 'proto_v2' | 'no_version' | 'unknown'.
+-type pushy_signing_method() :: 'rsa2048_sha1' | 'hmac_sha256' | 'unknown'.
+-type pushy_validation_states() :: 'ok_sofar' |
+                                   'ok' |
+                                   'bad_input' |
+                                   'header_too_big' |
+                                   'body_too_big' |
+                                   'bad_header' |
+                                   'bad_sig' |
+                                   'parse_fail'.
 
 -type pushy_key_fetch_fn() :: any(). %% fun((pushy_signing_method(), json_term()) -> {ok, any()} | {fail, any()}.
 
@@ -19,7 +27,7 @@
          signature :: binary()}).
 
 -record(pushy_message,
-        {validated :: 'ok_sofar' | 'ok' | {'fail', any()},
+        {validated :: pushy_validation_states(),
          id :: reference(),
          address :: binary() | 'none',
          header  :: binary() | 'none',
