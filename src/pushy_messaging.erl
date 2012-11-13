@@ -60,15 +60,15 @@ receive_message_async(Socket, Frame) ->
 parse_message(Header, Body, KeyFetch) ->
     parse_message(none, Header, Body, KeyFetch).
 
--spec parse_message(binary(), binary(), binary(), pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
+-spec parse_message(Address :: binary() | 'none',
+                    Header :: binary(),
+                    Body :: binary(),
+                    KeyFetch :: pushy_key_fetch_fn()) -> {ok| error, #pushy_message{}}.
 parse_message(Address, Header, Body, KeyFetch) ->
     Msg1 = build_message_record(Address, Header, Body),
     Msg2 = parse_body(Msg1),
-%    lager:error("Processed msg (2) ~p ~p", [Msg2#pushy_message.validated, Msg2#pushy_message.body]),
     Msg3 = validate_signature(Msg2,KeyFetch),
-%    lager:error("Processed msg (3) ~p ~p", [Msg3#pushy_message.validated, Msg3#pushy_message.body]),
     finalize_msg(Msg3).
-
 
 %%
 %% Build a message record for the various parse and validation stages to process
@@ -78,10 +78,10 @@ parse_message(Address, Header, Body, KeyFetch) ->
 %% Complicate attempts to DOS using too large packets
 build_message_record(_Address, Header, _Body) when size(Header) > ?MAX_HEADER_SIZE ->
     lager:error("Message rejected because header is too big ~s > ~s", [size(Header), ?MAX_HEADER_SIZE]),
-    #pushy_message{validated = header_to_big};
+    #pushy_message{validated = header_too_big};
 build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE ->
     lager:error("Message rejected because body is too big ~s > ~s", [size(Body), ?MAX_BODY_SIZE]),
-    #pushy_message{validated = body_to_big};
+    #pushy_message{validated = body_too_big};
 build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
     lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
@@ -233,6 +233,7 @@ validate_signature(#pushy_message{validated = ok_sofar,
 validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 
 
+-spec finalize_msg(Message :: #pushy_message{}) -> {ok| error, #pushy_message{}}.
 finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
     {ok, Message#pushy_message{validated = ok}};
 finalize_msg(#pushy_message{} = Message) ->
@@ -241,13 +242,19 @@ finalize_msg(#pushy_message{} = Message) ->
 %%
 %% Message generation
 %%
--spec make_message(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+-spec make_message(Proto :: pushy_message_version(),
+                   Method :: pushy_signing_method(),
+                   Key :: tuple(),
+                   EJson :: any()) -> [ binary()].
 make_message(Proto, Method, Key, EJson) ->
     Json = ?TIME_IT(jiffy, encode,(EJson)),
     Header = ?TIME_IT(?MODULE, make_header, (Proto, Method, Key, Json)),
     [Header, Json].
 
--spec make_header(proto_v1| proto_v2, atom(), tuple(), any()) -> {binary(), binary()}.
+-spec make_header(Proto:: pushy_message_version(),
+                  Algorithm:: pushy_signing_method(),
+                  Key:: tuple(),
+                  Body:: any()) -> binary().
 make_header(Proto, hmac_sha256, Key, Body) ->
     HMAC = hmac:hmac256(Key, Body),
     SignedChecksum = base64:encode(HMAC),

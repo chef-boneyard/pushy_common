@@ -40,8 +40,7 @@ make_message_test_() ->
      end,
      [{"Make a simple HMAC message",
       fun() ->
-              [Header, Msg] = pushy_messaging:make_message(proto_v2, hmac_sha256,
-                                                           {hmac_sha256, Hmac_sha256_key}, EJson),
+              [Header, Msg] = pushy_messaging:make_message(proto_v2, hmac_sha256, Hmac_sha256_key, EJson),
               ?assertMatch(<<"Version:2.0;SigningMethod:hmac_sha256;Signature:",_/binary>>, Header),
               <<"Version:2.0;SigningMethod:hmac_sha256;Signature:",Sig/binary>> = Header,
               ?assertEqual(<<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>, Sig),
@@ -63,7 +62,7 @@ make_message_test_() ->
 parse_hmac_message_test_() ->
     EJson = mk_ejson_blob(),
 %    JSon = jiffy:encode(EJson),
-    Hmac_sha256_key = <<"01234567890123456789012345678901">>, 
+    Hmac_sha256_key = <<"01234567890123456789012345678901">>,
     [Header, Body] = mk_v2_hmac_msg(),
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
@@ -115,7 +114,7 @@ parse_rsa_message_test_() ->
      ]}.
 
 parse_bad_message_test_() ->
-    Hmac_sha256_key = <<"01234567890123456789012345678901">>, 
+    Hmac_sha256_key = <<"01234567890123456789012345678901">>,
     [Header, Body] = mk_v2_hmac_msg(),
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
@@ -164,7 +163,7 @@ mk_hmac_key() ->
 mk_v2_hmac_msg() ->
     EJson = mk_ejson_blob(),
     Key = mk_hmac_key(),
-    pushy_messaging:make_message(proto_v2, hmac_sha256, {hmac_sha256, Key}, EJson).
+    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson).
 
 mk_v2_rsa_msg() ->
     EJson = mk_ejson_blob(),
