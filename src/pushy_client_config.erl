@@ -7,19 +7,26 @@
 -module(pushy_client_config).
 
 -export([
-         get_config/3
+         get_config/6
         ]).
 
 -include("pushy_client.hrl").
 
 -spec get_config(OrgName :: binary(),
+                 NodeName :: binary(),
+                 CreatorName :: binary(),
+                 PrivateKey :: any(),
                  Hostname :: binary(),
                  Port :: integer()) -> #pushy_client_config{}.
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
-get_config(OrgName, Hostname, Port) ->
-    FullHeaders = [{"Accept", "application/json"}],
-    Url = construct_url(OrgName, Hostname, Port),
+get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
+    Path = path(OrgName, NodeName),
+    Headers =  chef_authn:sign_request(PrivateKey, <<"">>, binary_to_list(CreatorName),
+                                       <<"GET">>, now,
+                                       list_to_binary(Path)),
+    FullHeaders = [{"Accept", "application/json"}|Headers],
+    Url = construct_url(OrgName, NodeName, Hostname, Port),
     case ibrowse:send_req(Url, FullHeaders, get) of
         {ok, Code, ResponseHeaders, ResponseBody} ->
             ok = check_http_response(Code, ResponseHeaders, ResponseBody),
@@ -74,7 +81,11 @@ check_http_response(Code, Headers, Body) ->
 
 
 -spec construct_url(OrgName :: binary(),
+                    NodeName :: binary(),
                     Hostname :: binary(),
                     Port :: integer()) -> list().
-construct_url(OrgName, Hostname, Port) ->
-    lists:flatten(io_lib:format("http://~s:~w/organizations/~s/pushy/config", [Hostname, Port, OrgName])).
+construct_url(OrgName, NodeName, Hostname, Port) ->
+    lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, path(OrgName, NodeName)])).
+
+path(OrgName, NodeName) ->
+    io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName]).
