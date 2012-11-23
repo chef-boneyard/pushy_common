@@ -10,6 +10,7 @@
          get_config/6
         ]).
 
+-include("pushy_messaging.hrl").
 -include("pushy_client.hrl").
 
 -spec get_config(OrgName :: binary(),
@@ -47,10 +48,14 @@ parse_json_response(Body) ->
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
     CommandAddress = ej:get({"push_jobs", "heartbeat", "command_addr"}, EJson),
     Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
+    SessionKey = ej:get({"session_key", "key"}, EJson),
+    SessionMethod = ej:get({"session_key", "method"}, EJson),
     {ok, PublicKey} = rsa_public_key(ej:get({"public_key"}, EJson)),
     #pushy_client_config{heartbeat_address = binary_to_list(HeartbeatAddress),
                          heartbeat_interval = round(Interval*1000),
                          command_address = binary_to_list(CommandAddress),
+                         session_key = base64:decode(SessionKey),
+                         session_method = pushy_messaging:method_to_atom(SessionMethod),
                          server_public_key = PublicKey}.
 
 rsa_public_key(BinKey) ->
