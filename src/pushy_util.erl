@@ -13,8 +13,6 @@
          get_env/3, % deprecated
          get_env/4, % deprecated
          read_body/0,
-         do_authenticate_message/2,
-         do_authenticate_message/3,
          rand_bytes/1,
          guid_v4/0,
          gen_req_id_using_rand/2,
@@ -56,41 +54,6 @@ read_body() ->
         {zmq, _Sock, BodyFrame, []} ->
             BodyFrame
     end.
-
-%% DECODE/DECRYPT
-do_authenticate_message(Header, Body) ->
-    {ok, PublicKey} = chef_keyring:get_key(client_public),
-    % TODO - query DB for public key of each client
-    do_authenticate_message(Header, Body, PublicKey).
-
-do_authenticate_message(Header, Body, PublicKey) ->
-    SignedChecksum = signed_checksum_from_header(Header),
-    Decrypted = decrypt_sig(SignedChecksum, PublicKey),
-    Plain = chef_authn:hash_string(Body),
-    case Decrypted of
-        Plain -> ok;
-        _Else ->
-            case envy:get(pushy, ignore_signature_check, false, boolean) of
-                true -> ok;
-                false -> {no_authn, bad_sig}
-            end
-    end.
-
-% TODO - update chef_authn to export this function
-decrypt_sig(Sig, {'RSAPublicKey', _, _} = PK) ->
-    try
-        public_key:decrypt_public(base64:decode(Sig), PK)
-    catch
-        error:decrypt_failed ->
-            decrypt_failed
-    end.
-
-signed_checksum_from_header(Header) ->
-    HeaderParts = re:split(Header, <<":|;">>),
-    {_version, _Version, _signed_checksum, SignedChecksum}
-        = list_to_tuple(HeaderParts),
-    SignedChecksum.
-
 
 %%% R15 introduces strong_rand_bytes, which is preferable, but we still need to work on older versions.
 -spec rand_bytes(non_neg_integer()) -> binary().
