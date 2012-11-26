@@ -7,19 +7,27 @@
 -module(pushy_client_config).
 
 -export([
-         get_config/3
+         get_config/6
         ]).
 
+-include("pushy_messaging.hrl").
 -include("pushy_client.hrl").
 
 -spec get_config(OrgName :: binary(),
+                 NodeName :: binary(),
+                 CreatorName :: binary(),
+                 PrivateKey :: any(),
                  Hostname :: binary(),
                  Port :: integer()) -> #pushy_client_config{}.
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
-get_config(OrgName, Hostname, Port) ->
-    FullHeaders = [{"Accept", "application/json"}],
-    Url = construct_url(OrgName, Hostname, Port),
+get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
+    Path = path(OrgName, NodeName),
+    Headers =  chef_authn:sign_request(PrivateKey, <<"">>, binary_to_list(CreatorName),
+                                       <<"GET">>, now,
+                                       list_to_binary(Path)),
+    FullHeaders = [{"Accept", "application/json"}|Headers],
+    Url = construct_url(Hostname, Port, Path),
     case ibrowse:send_req(Url, FullHeaders, get) of
         {ok, Code, ResponseHeaders, ResponseBody} ->
             ok = check_http_response(Code, ResponseHeaders, ResponseBody),
@@ -40,10 +48,14 @@ parse_json_response(Body) ->
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
     CommandAddress = ej:get({"push_jobs", "heartbeat", "command_addr"}, EJson),
     Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
+    SessionKey = ej:get({"session_key", "key"}, EJson),
+    SessionMethod = ej:get({"session_key", "method"}, EJson),
     {ok, PublicKey} = rsa_public_key(ej:get({"public_key"}, EJson)),
     #pushy_client_config{heartbeat_address = binary_to_list(HeartbeatAddress),
                          heartbeat_interval = round(Interval*1000),
                          command_address = binary_to_list(CommandAddress),
+                         session_key = base64:decode(SessionKey),
+                         session_method = pushy_messaging:method_to_atom(SessionMethod),
                          server_public_key = PublicKey}.
 
 rsa_public_key(BinKey) ->
@@ -73,8 +85,11 @@ check_http_response(Code, Headers, Body) ->
     end.
 
 
--spec construct_url(OrgName :: binary(),
-                    Hostname :: binary(),
-                    Port :: integer()) -> list().
-construct_url(OrgName, Hostname, Port) ->
-    lists:flatten(io_lib:format("http://~s:~w/organizations/~s/pushy/config", [Hostname, Port, OrgName])).
+-spec construct_url(Hostname :: binary(),
+                    Port :: integer(),
+                    Path :: binary()) -> list().
+construct_url(Hostname, Port, Path) ->
+    lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, Path])).
+
+path(OrgName, NodeName) ->
+    io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName]).

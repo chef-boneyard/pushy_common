@@ -18,7 +18,9 @@
 
          make_send_message_multi/7,
          send_message/2,
-         send_message_multi/3
+         send_message_multi/3,
+
+         method_to_atom/1
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -287,6 +289,11 @@ proto_to_bin(proto_v1) ->
     <<"1.0">>;
 proto_to_bin(proto_v2) ->
     <<"2.0">>.
+
+method_to_atom(<<"hmac_sha256">>) ->
+    hmac_sha256;
+method_to_atom(<<"rsa2048_sha1">>) ->
+    rsa2048_sha1.
 
 %%%
 %%% Bulk message generation
