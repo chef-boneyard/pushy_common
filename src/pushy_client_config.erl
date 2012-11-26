@@ -27,7 +27,7 @@ get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
                                        <<"GET">>, now,
                                        list_to_binary(Path)),
     FullHeaders = [{"Accept", "application/json"}|Headers],
-    Url = construct_url(OrgName, NodeName, Hostname, Port),
+    Url = construct_url(Hostname, Port, Path),
     case ibrowse:send_req(Url, FullHeaders, get) of
         {ok, Code, ResponseHeaders, ResponseBody} ->
             ok = check_http_response(Code, ResponseHeaders, ResponseBody),
@@ -85,12 +85,11 @@ check_http_response(Code, Headers, Body) ->
     end.
 
 
--spec construct_url(OrgName :: binary(),
-                    NodeName :: binary(),
-                    Hostname :: binary(),
-                    Port :: integer()) -> list().
-construct_url(OrgName, NodeName, Hostname, Port) ->
-    lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, path(OrgName, NodeName)])).
+-spec construct_url(Hostname :: binary(),
+                    Port :: integer(),
+                    Path :: binary()) -> list().
+construct_url(Hostname, Port, Path) ->
+    lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, Path])).
 
 path(OrgName, NodeName) ->
     io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName]).
