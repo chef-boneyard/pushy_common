@@ -42,9 +42,9 @@ label(jiffy, decode) ->
 
 label(pushy_heartbeat_generator, do_send) ->
     label(send, all);
-label(pushy_command_switch, send_raw) ->
+label(pushy_command_switch, send) ->
     label(send, all);
-label(pushy_command_switch, do_send_raw) ->
+label(pushy_command_switch, do_send) ->
     label(send, all);
 label(pushy_command_switch, do_receive) ->
     label('receive', all);
