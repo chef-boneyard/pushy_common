@@ -42,14 +42,16 @@ label(jiffy, decode) ->
 
 label(pushy_heartbeat_generator, do_send) ->
     label(send, all);
-label(pushy_command_switch, do_send) ->
+label(pushy_command_switch, send) ->
     label(send, all);
-label(pushy_command_switch, do_send_multi) ->
+label(pushy_command_switch, do_send) ->
     label(send, all);
 label(pushy_command_switch, do_receive) ->
     label('receive', all);
 label(pushy_messaging, _) ->
     label('messaging', all);
+label(pushy_node_state, process_and_dispatch_message) ->
+    label(recv, all);
 label(chef_authn, _) ->
     label('authn', all);
 label(authn, _) ->
