@@ -11,4 +11,4 @@
 %% @end
 -define(TIME_IT(Mod, Fun, Args),
         pushy_metrics:ctime(pushy_metrics:label(Mod, Fun),
-                         fun() -> Mod:Fun Args end)).
+                            fun() -> Mod:Fun Args end)).
