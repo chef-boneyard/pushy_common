@@ -24,8 +24,7 @@
 get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
     Path = path(OrgName, NodeName),
     Headers =  chef_authn:sign_request(PrivateKey, <<"">>, binary_to_list(CreatorName),
-                                       <<"GET">>, now,
-                                       list_to_binary(Path)),
+                                       <<"GET">>, now, Path),
     FullHeaders = [{"Accept", "application/json"}|Headers],
     Url = construct_url(Hostname, Port, Path),
     case ibrowse:send_req(Url, FullHeaders, get) of
@@ -91,5 +90,7 @@ check_http_response(Code, Headers, Body) ->
 construct_url(Hostname, Port, Path) ->
     lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, Path])).
 
+-spec path(OrgName :: binary(),
+           NodeName :: binary()) -> binary().
 path(OrgName, NodeName) ->
-    io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName]).
+    list_to_binary(io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName])).
