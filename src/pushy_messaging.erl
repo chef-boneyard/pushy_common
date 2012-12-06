@@ -41,6 +41,7 @@ receive_frame_list(Socket, List) ->
     %% This clause should probably get a timeout. I b
     receive
         {zmq, Socket, Frame, [rcvmore]} ->
+            folsom_metrics:notify(metric_name(<<"recv">>),1, meter),
             receive_frame_list(Socket, [Frame | List]);
         {zmq, Socket, Frame, []} ->
             lists:reverse([Frame | List])
@@ -54,6 +55,7 @@ receive_frame_list(Socket, List) ->
 %%
 receive_message_async(Socket, Frame) ->
     %% collect the full message
+    folsom_metrics:notify(metric_name(<<"recv">>),1, meter),
     receive_frame_list(Socket, [Frame]).
 
 
@@ -335,8 +337,12 @@ send_message(_Socket, []) ->
 send_message(Socket, [Frame | [] ]) ->
     erlzmq:send(Socket, Frame, []);
 send_message(Socket, [ Frame | FrameList]) ->
+    folsom_metrics:notify(metric_name(<<"send">>),1, meter),
     erlzmq:send(Socket, Frame, [sndmore]),
     send_message(Socket, FrameList).
 
 send_message_multi(Socket, AddressList, FrameList) ->
     [ send_message(Socket, [Address | FrameList] ) || Address <- AddressList ].
+
+metric_name(Name) ->
+    pushy_metrics:app_metric(?MODULE, Name).

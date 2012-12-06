@@ -33,10 +33,10 @@ make_message_test_() ->
     PrivateKey = mk_private_key(),
     {foreach,
      fun() ->
-             ok
+             folsom:start()
      end,
      fun(_) ->
-             ok
+              folsom:stop()
      end,
      [{"Make a simple HMAC message",
       fun() ->
@@ -63,24 +63,25 @@ parse_hmac_message_test_() ->
     EJson = mk_ejson_blob(),
 %    JSon = jiffy:encode(EJson),
     Hmac_sha256_key = <<"01234567890123456789012345678901">>,
-    [Header, Body] = mk_v2_hmac_msg(),
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
     {foreach,
      fun() ->
-             ok
+             folsom:start()
      end,
      fun(_) ->
-             ok
+              folsom:stop()
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
+               [Header, Body] = mk_v2_hmac_msg(),
                {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
                ?assertEqual({pushy_header, proto_v2, hmac_sha256, <<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>}, R#pushy_message.parsed_header),
                ?assertEqual(EJson, R#pushy_message.body)
        end},
       {"parse a message whose body doesn't match header sig",
        fun() ->
+               [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, jiffy:encode(mk_ejson_med_blob()), KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
        end}
@@ -90,24 +91,25 @@ parse_rsa_message_test_() ->
     EJson = mk_ejson_blob(),
 %    JSon = jiffy:encode(EJson),
     Key = mk_public_key(),
-    [Header, Body] = mk_v2_rsa_msg(),
     KeyFetch = fun(rsa2048_sha1, _) -> {ok,Key} end,
 
     {foreach,
      fun() ->
-             ok
+             folsom:start()
      end,
      fun(_) ->
-             ok
+              folsom:stop()
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
+               [Header, Body] = mk_v2_rsa_msg(),
                {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
                ?assertMatch({pushy_header, proto_v2, rsa2048_sha1, _}, R#pushy_message.parsed_header),
                ?assertEqual(EJson, R#pushy_message.body)
        end},
       {"parse a message whose body doesn't match header sig",
        fun() ->
+               [Header, _Body] = mk_v2_rsa_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, jiffy:encode(mk_ejson_med_blob()), KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
        end}
@@ -115,15 +117,14 @@ parse_rsa_message_test_() ->
 
 parse_bad_message_test_() ->
     Hmac_sha256_key = <<"01234567890123456789012345678901">>,
-    [Header, Body] = mk_v2_hmac_msg(),
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
     {foreach,
      fun() ->
-             ok
+             folsom:start()
      end,
      fun(_) ->
-             ok
+              folsom:stop()
      end,
      [{"parse an empty header",
        fun() ->
@@ -137,21 +138,25 @@ parse_bad_message_test_() ->
        end},
       {"parse a broken header (ignore bad key)",
        fun() ->
+               [Header, Body] = mk_v2_hmac_msg(),
                {ok, R} = (pushy_messaging:parse_message(<<Header/binary,";asdfasdfasd:fooaste">>, Body, KeyFetch)),
                ?assertMatch(#pushy_message{validated = ok}, R)
        end},
       {"parse an empty body",
        fun() ->
+               [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, <<"">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = parse_fail}, R)
        end},
       {"parse a body that isn't json",
        fun() ->
+               [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, <<"asdfasd">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = parse_fail}, R)
        end},
       {"parse a message whose body doesn't match header sig (short)",
        fun() ->
+               [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, <<"{}">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
        end}

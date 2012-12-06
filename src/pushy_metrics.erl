@@ -3,84 +3,34 @@
 %% @author Seth Chisamore <schisamo@opscode.com>
 %% @copyright 2012 Opscode, Inc.
 
-%% HEAVILY INSPIRED by metrics logic in stats_hero AND pooler
-
 %% @doc General metric module
 -module(pushy_metrics).
 
 -export([
-         send/3,
+         app_metric/2,
          label/2,
          ctime/2
         ]).
 
-%% type specs for metrics
--type metric_label() :: binary().
--type metric_value() :: non_neg_integer() |
-                        {'inc',1}.
--type metric_type() :: 'counter' | 'histogram' | 'history' | 'meter'.
+-define(APP_PREFIX, "app.").
+-define(FUN_PREFIX, "function.").
 
-%% @doc Generate a folsom metric label for upstream `Prefix' and function name `Fun'.
-%% An error is thrown if `Prefix' is unknown.
-%% This is where we encode the mapping of module to upstream label.
-label(pushy_client_config, get_config) ->
-    label('config', get_config);
-label(pushysim_client, connect_to_heartbeat) ->
-    label('messaging', all);
-label(pushysim_client, connect_to_command) ->
-    label('messaging', all);
-label(pushysim_client, receive_message) ->
-    label('messaging', recv);
-label(pushysim_client, send_heartbeat) ->
-    label('messaging', heartbeat);
-label(pushysim_client, send_response) ->
-    label('messaging', send);
-label(jiffy, encode) ->
-    label('messaging', send);
-label(jiffy, decode) ->
-    label('messaging', recv);
+%% @doc generate a name for an application metric
+-spec app_metric(Mod :: atom(), Name :: binary()) -> binary().
+app_metric(Mod, Name) ->
+    ModBin = erlang:atom_to_binary(Mod, utf8),
+    iolist_to_binary([?APP_PREFIX, ModBin, ".", Name]).
 
-label(pushy_heartbeat_generator, do_send) ->
-    label(send, all);
-label(pushy_command_switch, send) ->
-    label(send, all);
-label(pushy_command_switch, do_send) ->
-    label(send, all);
-label(pushy_command_switch, do_receive) ->
-    label('receive', all);
-label(pushy_messaging, _) ->
-    label('messaging', all);
-label(pushy_node_state, process_and_dispatch_message) ->
-    label(recv, all);
-label(chef_authn, _) ->
-    label('authn', all);
-label(authn, _) ->
-    label('authn', all);
-label(Prefix, Fun) when Prefix =:= send;
-                        Prefix =:= 'receive';
-                        Prefix =:= 'config';
-                        Prefix =:= 'messaging';
-                        Prefix =:= 'authn' ->
-    PrefixBin = erlang:atom_to_binary(Prefix, utf8),
+%% @doc Generate a folsom metric label for module `Mod' and function name `Fun'.
+-spec label(Mod :: atom(), Name :: atom()) -> binary().
+label(Mod, Fun) ->
+    ModBin = erlang:atom_to_binary(Mod, utf8),
     FunBin = erlang:atom_to_binary(Fun, utf8),
-    iolist_to_binary([PrefixBin, ".", FunBin]);
-label(BadPrefix, Fun) ->
-    erlang:error({bad_prefix, {BadPrefix, Fun}}).
+    iolist_to_binary([?FUN_PREFIX, ModBin, ".", FunBin]).
 
--spec send(Name :: metric_label(),
-                  Value :: metric_value(),
-                  Type :: metric_type()) -> ok.
-%% Send a metric using the metrics module from application config or
-%% do nothing.
-send(Name, Value, Type) ->
-    case envy:get(pushy_common, metrics_module, undefined, atom) of
-        undefined -> ok;
-        Mod -> Mod:notify(Name, Value, Type)
-    end,
-    ok.
-
--spec ctime(binary(), fun(() -> any())) -> any().
-%% @doc Update cummulative timer identified by `Label'.
+-spec ctime(Metric :: binary(),
+            Fun :: fun(() -> any())) -> any().
+%% @doc Update function timer identified by `Metric'.
 %%
 %% If `Fun' is a fun/0, the metric is updated with the time required to execute `Fun()' and
 %% its value is returned.
@@ -89,10 +39,6 @@ send(Name, Value, Type) ->
 %% function directly.
 %%
 %% ``?TIME_IT(Mod, Fun, Args)''
-%%
-%% The `Mod' argument will be mapped to an upstream label as defined in this module.
-%% If `Mod' is not recognized, we currently raise an error, but this could be changed
-%% to just accept it as part of the label for the metric as-is.
 %%
 %% The specified MFA will be evaluated and its execution time sent to the folsom
 %% worker. This macro returns the value returned by the specified MFA. NOTE: `Args' must be
@@ -104,15 +50,21 @@ send(Name, Value, Type) ->
 %% '''
 %% And here's the intended expansion:
 %% ```
-%% pushy_metrics:ctime(<<"send.all">>,
+%% pushy_metrics:ctime(<<"function.pushy_command_switch.do_send">>,
 %% fun() -> pushy_command_switch:do_send(State, OrgName, NodeName, Message) end)
 %% '''
 %%
 %% `Mod': atom(); `Fun': atom();
 %% `Args': '(a1, a2, ..., aN)'
 %%
-ctime(Label, Fun) when is_function(Fun) ->
+ctime(Metric, Fun) when is_function(Fun) ->
     {Micros, Result} = timer:tc(Fun),
-    pushy_metrics:send(<<Label/binary, ".counter">>, {inc, 1}, counter),
-    pushy_metrics:send(<<Label/binary, ".histogram">>, Micros, histogram),
+    Millis = Micros/1000,
+    folsom_metrics:notify(<<Metric/binary, ".rate">>, 1, meter),
+    folsom_metrics:notify(<<Metric/binary, ".duration">>, Millis, histogram),
     Result.
+
+%%
+%% Internal functions
+%%
+
