@@ -72,7 +72,7 @@ extract_plain_session_key(EJson) ->
 extract_enc_session_key(PrivateKey, EJson) ->
     EncodedSessionKey = ej:get({"encoded_session_key", "key"}, EJson),
     SessionMethod = pushy_messaging:method_to_atom(ej:get({"encoded_session_key", "method"}, EJson)),
-    SessionKey = public_key:decrypt_private(PrivateKey, base64:decode(EncodedSessionKey)),
+    SessionKey = public_key:decrypt_private(base64:decode(EncodedSessionKey), PrivateKey),
     {SessionMethod, SessionKey}.
 
 
