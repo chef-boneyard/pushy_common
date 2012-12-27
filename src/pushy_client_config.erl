@@ -30,7 +30,7 @@ get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
     case ibrowse:send_req(Url, FullHeaders, get) of
         {ok, Code, ResponseHeaders, ResponseBody} ->
             ok = check_http_response(Code, ResponseHeaders, ResponseBody),
-            Config = parse_json_response(PrivateKey, ResponseBody);
+            parse_json_response(PrivateKey, ResponseBody);
         {error, Reason} ->
             throw({error, Reason})
     end.
