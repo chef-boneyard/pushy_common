@@ -30,32 +30,51 @@ get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
     case ibrowse:send_req(Url, FullHeaders, get) of
         {ok, Code, ResponseHeaders, ResponseBody} ->
             ok = check_http_response(Code, ResponseHeaders, ResponseBody),
-            parse_json_response(ResponseBody);
+            parse_json_response(PrivateKey, ResponseBody);
         {error, Reason} ->
             throw({error, Reason})
     end.
 
--spec parse_json_response(Body::string()) -> #pushy_client_config{}.
+-spec parse_json_response(PrivateKey::any(), Body::string()) -> #pushy_client_config{}.
 %% @doc Parse the configuration response body and return the heartbeat
 %% and command channel addresses along with the public key
 %% for the server.
 %%
 %% We convert the zeromq addresses to lists since it doesn't support
 %% binary endpoints and the heartbeat interval to an integer
-parse_json_response(Body) ->
+parse_json_response(PrivateKey, Body) ->
     EJson = jiffy:decode(Body),
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
     CommandAddress = ej:get({"push_jobs", "heartbeat", "command_addr"}, EJson),
     Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
-    SessionKey = ej:get({"session_key", "key"}, EJson),
-    SessionMethod = ej:get({"session_key", "method"}, EJson),
+    {SessionMethod, SessionKey} = extract_session_key(PrivateKey, EJson),
     {ok, PublicKey} = rsa_public_key(ej:get({"public_key"}, EJson)),
     #pushy_client_config{heartbeat_address = binary_to_list(HeartbeatAddress),
                          heartbeat_interval = round(Interval*1000),
                          command_address = binary_to_list(CommandAddress),
-                         session_key = base64:decode(SessionKey),
-                         session_method = pushy_messaging:method_to_atom(SessionMethod),
+                         session_key = SessionKey,
+                         session_method = SessionMethod,
                          server_public_key = PublicKey}.
+
+extract_session_key(PrivateKey, EJson) ->
+    case ej:get({"encoded_session_key"}, EJson) of
+        undefined ->
+            extract_plain_session_key(EJson);
+        _ ->
+            extract_enc_session_key(PrivateKey, EJson)
+    end.
+
+extract_plain_session_key(EJson) ->
+    SessionKey = base64:decode(ej:get({"session_key", "key"}, EJson)),
+    SessionMethod = pushy_messaging:method_to_atom(ej:get({"session_key", "method"}, EJson)),
+    {SessionMethod, SessionKey}.
+
+extract_enc_session_key(PrivateKey, EJson) ->
+    EncodedSessionKey = ej:get({"encoded_session_key", "key"}, EJson),
+    SessionMethod = pushy_messaging:method_to_atom(ej:get({"encoded_session_key", "method"}, EJson)),
+    SessionKey = public_key:decrypt_private(base64:decode(EncodedSessionKey), PrivateKey),
+    {SessionMethod, SessionKey}.
+
 
 rsa_public_key(BinKey) ->
     case chef_authn:extract_public_or_private_key(BinKey) of
@@ -65,6 +84,8 @@ rsa_public_key(BinKey) ->
          Key when is_tuple(Key) ->
             {ok, Key}
     end.
+
+
 
 
 %% @doc Check the code of the HTTP response and throw error if non-2XX
