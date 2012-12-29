@@ -166,6 +166,47 @@ parse_bad_message_test_() ->
        end}
      ]}.
 
+parse_bad_timestamp_test_() ->
+    Hmac_sha256_key = <<"01234567890123456789012345678901">>,
+    KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
+
+    {foreach,
+     fun() ->
+             folsom:start()
+     end,
+     fun(_) ->
+              folsom:stop()
+     end,
+     [{"parse an message missing a timestamp",
+       fun() ->
+               [Header, Body] = mk_v2_hmac_msg(fun(M) -> ej:delete({"timestamp"}, M) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with garbage for a timestamp",
+       fun() ->
+               [Header, Body] = mk_v2_hmac_msg(fun(M) -> ej:set({"timestamp"}, M, <<"garbage">>) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with too much skew for a timestamp",
+       fun() ->
+               Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               BadTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+10000)),
+               [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, BadTime) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with an old, but ok timestamp",
+       fun() ->
+               Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               OkTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+1)),
+               [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, OkTime) end, Hmac_sha256_key),
+               {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = ok}, R)
+       end}
+     ]}.
+
 timestamp_test_() ->
     {foreach,
      fun() ->
@@ -295,16 +336,24 @@ mk_hmac_key() ->
     <<"01234567890123456789012345678901">>.
 
 mk_v2_hmac_msg() ->
-    EJson = mk_ejson_blob(),
     Key = mk_hmac_key(),
+    mk_v2_hmac_msg(fun(X) -> X end, Key).
+
+mk_v2_hmac_msg(F, Key) ->
+    EJson = mk_ejson_blob(),
     EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
-    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson2).
+    EJson3 = F(EJson2),
+    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson3).
 
 mk_v2_rsa_msg() ->
-    EJson = mk_ejson_blob(),
     Key = mk_private_key(),
+    mk_v2_rsa_msg(fun(X) -> X end, Key).
+
+mk_v2_rsa_msg(F, Key) ->
+    EJson = mk_ejson_blob(),
     EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
-    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson2).
+    EJson3 = F(EJson2),
+    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson3).
 mk_ejson_blob() ->
     {[{<<"type">>,<<"config">>},
       {<<"host">>,<<"localhost">>},
