@@ -60,8 +60,8 @@ make_message_test_() ->
 
 
 parse_hmac_message_test_() ->
-    EJson = mk_ejson_blob(),
-%    JSon = jiffy:encode(EJson),
+    EJsonNTS = mk_ejson_blob(),
+    EJson = pushy_messaging:insert_timestamp_and_sequence(EJsonNTS, 0),
     Hmac_sha256_key = <<"01234567890123456789012345678901">>,
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
@@ -76,8 +76,11 @@ parse_hmac_message_test_() ->
        fun() ->
                [Header, Body] = mk_v2_hmac_msg(),
                {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
-               ?assertEqual({pushy_header, proto_v2, hmac_sha256, <<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>}, R#pushy_message.parsed_header),
-               ?assertEqual(EJson, R#pushy_message.body)
+               %% time might have changed, rip it out.
+               BodyWOTimestamp = ej:delete({<<"timestamp">>}, R#pushy_message.body),
+               EJsonStripped = ej:delete({<<"timestamp">>}, EJson),
+               ?debugVal(BodyWOTimestamp),
+               ?assertEqual(EJsonStripped, BodyWOTimestamp)
        end},
       {"parse a message whose body doesn't match header sig",
        fun() ->
@@ -88,7 +91,8 @@ parse_hmac_message_test_() ->
      ]}.
 
 parse_rsa_message_test_() ->
-    EJson = mk_ejson_blob(),
+    EJsonNTS = mk_ejson_blob(),
+    EJson = pushy_messaging:insert_timestamp_and_sequence(EJsonNTS, 0),
 %    JSon = jiffy:encode(EJson),
     Key = mk_public_key(),
     KeyFetch = fun(rsa2048_sha1, _) -> {ok,Key} end,
@@ -98,7 +102,7 @@ parse_rsa_message_test_() ->
              folsom:start()
      end,
      fun(_) ->
-              folsom:stop()
+             folsom:stop()
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -293,12 +297,14 @@ mk_hmac_key() ->
 mk_v2_hmac_msg() ->
     EJson = mk_ejson_blob(),
     Key = mk_hmac_key(),
-    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson).
+    EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
+    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson2).
 
 mk_v2_rsa_msg() ->
     EJson = mk_ejson_blob(),
     Key = mk_private_key(),
-    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson).
+    EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
+    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson2).
 mk_ejson_blob() ->
     {[{<<"type">>,<<"config">>},
       {<<"host">>,<<"localhost">>},
