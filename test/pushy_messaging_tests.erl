@@ -180,7 +180,72 @@ timestamp_test_() ->
               MsgSecs = calendar:datetime_to_gregorian_seconds(MsgDate),
               NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
               ?assert(abs(NowSecs - MsgSecs) < 1)
-      end}
+      end},
+      {"check that we can validate a sane message",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+
+               Msg2 = jiffy:decode(jiffy:encode(Msg)),
+
+               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with an old sequence number",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg2 = jiffy:decode(jiffy:encode(Msg)),
+
+               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a old message",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Date = httpd_util:rfc1123_date({{2012,12,21},{0,25,56}}),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a future message",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Date = httpd_util:rfc1123_date({{2112,12,21},{0,25,56}}),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a message missing a timestamp",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:delete({<<"timestamp">>}, Msg),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with a garbage timestamp",
+       fun() ->
+               SeqNo = 10,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, <<"naughty">>),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+       end}
 
 
      ]}.

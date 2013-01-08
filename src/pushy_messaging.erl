@@ -21,6 +21,7 @@
          send_message_multi/3,
 
          insert_timestamp_and_sequence/2,
+         check_ts/2,
          method_to_atom/1
         ]).
 
@@ -359,4 +360,26 @@ insert_timestamp_and_sequence({Fields}, Sequence) ->
     {[{<<"sequence">>, Sequence},
       {<<"timestamp">>, list_to_binary(httpd_util:rfc1123_date())} |
       Fields]}.
+
+check_ts(Message, MaxTimeSkew) ->
+    compare_time(ej:get({<<"timestamp">>}, Message), MaxTimeSkew).
+
+compare_time(MsgTime, MaxTimeSkew) when is_binary(MsgTime) ->
+    compare_time(binary_to_list(MsgTime), MaxTimeSkew);
+compare_time(MsgTime, MaxTimeSkew) when is_list(MsgTime) andalso is_integer(MaxTimeSkew) ->
+    case httpd_util:convert_request_date(MsgTime) of
+        bad_date ->
+            error;
+        EDate ->
+            NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+            MsgSecs = calendar:datetime_to_gregorian_seconds(EDate),
+            case abs(NowSecs - MsgSecs) of
+                N when N < MaxTimeSkew ->
+                    ok;
+                _ ->
+                    error
+            end
+    end;
+compare_time(_, _) ->
+    error.
 
