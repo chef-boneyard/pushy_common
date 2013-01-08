@@ -20,6 +20,7 @@
          send_message/2,
          send_message_multi/3,
 
+         insert_timestamp_and_sequence/2,
          method_to_atom/1
         ]).
 
@@ -346,3 +347,16 @@ send_message_multi(Socket, AddressList, FrameList) ->
 
 metric_name(Name) ->
     pushy_metrics:app_metric(?MODULE, Name).
+
+
+%%%
+%%% Utility routines for timestamps and sequence numbering
+%%%
+%%% Note: we use RFC 1123 dates for human readability. If we move to a binary format we should
+%%% change this to a raw seconds value or the like. 
+-spec insert_timestamp_and_sequence(json_term(), pos_integer()) -> json_term().
+insert_timestamp_and_sequence({Fields}, Sequence) ->
+    {[{<<"sequence">>, Sequence},
+      {<<"timestamp">>, list_to_binary(httpd_util:rfc1123_date())} |
+      Fields]}.
+

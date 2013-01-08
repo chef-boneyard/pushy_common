@@ -162,6 +162,30 @@ parse_bad_message_test_() ->
        end}
      ]}.
 
+timestamp_test_() ->
+    {foreach,
+     fun() ->
+             ok
+     end,
+     fun(_) ->
+             ok
+     end,
+     [{"add timestamp and sequence number",
+      fun() ->
+              SeqNo = 10,
+              MsgBase = {[]},
+              Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+              Time = ej:get({<<"timestamp">>}, Msg),
+              MsgDate = httpd_util:convert_request_date(binary_to_list(Time)),
+              MsgSecs = calendar:datetime_to_gregorian_seconds(MsgDate),
+              NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+              ?assert(abs(NowSecs - MsgSecs) < 1)
+      end}
+
+
+     ]}.
+
+
 mk_hmac_key() ->
     <<"01234567890123456789012345678901">>.
 
