@@ -184,25 +184,54 @@ timestamp_test_() ->
       {"check that we can validate a sane message",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 9,
                MsgBase = {[]},
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
 
                Msg2 = jiffy:decode(jiffy:encode(Msg)),
 
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
        end},
       {"check that we fail to validate a message with an old sequence number",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 10,
                MsgBase = {[]},
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
                Msg2 = jiffy:decode(jiffy:encode(Msg)),
 
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with garbage instead of a sequence number",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:set({<<"sequence">>}, Msg, <<"Naughty">>),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+       end},
+      {"check that we fail to validate a message without a sequence number",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:delete({<<"sequence">>}, Msg),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
        end},
       {"check that we fail to validate a old message",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 9,
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
@@ -210,11 +239,13 @@ timestamp_test_() ->
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
        end},
       {"check that we fail to validate a future message",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 9,
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
@@ -222,28 +253,33 @@ timestamp_test_() ->
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
        end},
       {"check that we fail to validate a message missing a timestamp",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 9,
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
                Msg1 = ej:delete({<<"timestamp">>}, Msg),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
        end},
       {"check that we fail to validate a message with a garbage timestamp",
        fun() ->
                SeqNo = 10,
+               CurSeqNo = 9,
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
                Msg1 = ej:set({<<"timestamp">>}, Msg, <<"naughty">>),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
        end}
 

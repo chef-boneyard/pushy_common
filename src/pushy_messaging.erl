@@ -21,6 +21,7 @@
          send_message_multi/3,
 
          insert_timestamp_and_sequence/2,
+         check_seq/2,
          check_ts/2,
          method_to_atom/1
         ]).
@@ -360,6 +361,16 @@ insert_timestamp_and_sequence({Fields}, Sequence) ->
     {[{<<"sequence">>, Sequence},
       {<<"timestamp">>, list_to_binary(httpd_util:rfc1123_date())} |
       Fields]}.
+
+check_seq(Msg, LastSeq) when is_integer(LastSeq) ->
+    case ej:get({<<"sequence">>}, Msg) of
+        CurSeq when is_integer(CurSeq) andalso LastSeq < CurSeq ->
+            ok;
+        _ ->
+            error
+    end;
+check_seq(_, _) ->
+    error.
 
 check_ts(Message, MaxTimeSkew) ->
     compare_time(ej:get({<<"timestamp">>}, Message), MaxTimeSkew).
