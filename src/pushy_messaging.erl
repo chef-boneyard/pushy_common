@@ -23,6 +23,7 @@
          insert_timestamp_and_sequence/2,
          check_seq/2,
          check_ts/2,
+         get_max_message_skew/0,
          method_to_atom/1
         ]).
 
@@ -245,7 +246,7 @@ validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 %%
 validate_timestamp(#pushy_message{validated = ok_sofar,
                                   body = EJson} = Message) ->
-    case check_ts(EJson, get_message_skew()) of
+    case check_ts(EJson, get_max_message_skew()) of
         ok ->
             Message#pushy_message{validated = ok_sofar};
         _Else ->
@@ -254,8 +255,8 @@ validate_timestamp(#pushy_message{validated = ok_sofar,
 validate_timestamp(#pushy_message{} = Message) ->
                           Message.
 
-get_message_skew() ->
-    envy:get(pushy_common, max_skew, ?MAX_TIME_SKEW_DEFAULT, integer). %% expect seconds
+get_max_message_skew() ->
+    envy:get(pushy_common, max_time_skew, ?MAX_TIME_SKEW_DEFAULT, integer). %% expect seconds
 
 %%
 -spec finalize_msg(Message :: #pushy_message{}) -> {ok| error, #pushy_message{}}.
