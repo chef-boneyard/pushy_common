@@ -236,7 +236,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg)),
 
                ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a message with an old sequence number",
        fun() ->
@@ -247,7 +247,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg)),
 
                ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a message with garbage instead of a sequence number",
        fun() ->
@@ -259,7 +259,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a message without a sequence number",
        fun() ->
@@ -271,7 +271,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(ok, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a old message",
        fun() ->
@@ -285,7 +285,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a future message",
        fun() ->
@@ -299,7 +299,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a message missing a timestamp",
        fun() ->
@@ -312,7 +312,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
        end},
       {"check that we fail to validate a message with a garbage timestamp",
        fun() ->
@@ -325,7 +325,7 @@ timestamp_test_() ->
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
                ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
-               ?assertEqual(error, pushy_messaging:check_ts(Msg2, 5))
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
        end}
 
 

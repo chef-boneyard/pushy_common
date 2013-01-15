@@ -22,7 +22,7 @@
 
          insert_timestamp_and_sequence/2,
          check_seq/2,
-         check_ts/2,
+         check_timestamp/2,
          get_max_message_skew/0,
          method_to_atom/1
         ]).
@@ -246,7 +246,7 @@ validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 %%
 validate_timestamp(#pushy_message{validated = ok_sofar,
                                   body = EJson} = Message) ->
-    case check_ts(EJson, get_max_message_skew()) of
+    case check_timestamp(EJson, get_max_message_skew()) of
         ok ->
             Message#pushy_message{validated = ok_sofar};
         _Else ->
@@ -391,7 +391,7 @@ check_seq(Msg, LastSeq) when is_integer(LastSeq) ->
 check_seq(_, _) ->
     error.
 
-check_ts(Message, MaxTimeSkew) ->
+check_timestamp(Message, MaxTimeSkew) ->
     compare_time(ej:get({<<"timestamp">>}, Message), MaxTimeSkew).
 
 compare_time(MsgTime, MaxTimeSkew) when is_binary(MsgTime) ->
