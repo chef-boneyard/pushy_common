@@ -79,7 +79,6 @@ parse_hmac_message_test_() ->
                %% time might have changed, rip it out.
                BodyWOTimestamp = ej:delete({<<"timestamp">>}, R#pushy_message.body),
                EJsonStripped = ej:delete({<<"timestamp">>}, EJson),
-               ?debugVal(BodyWOTimestamp),
                ?assertEqual(EJsonStripped, BodyWOTimestamp)
        end},
       {"parse a message whose body doesn't match header sig",
@@ -273,14 +272,30 @@ timestamp_test_() ->
                ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
                ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
        end},
-      {"check that we fail to validate a old message",
+      {"check that we validate a old (not expired) message",
        fun() ->
                SeqNo = 10,
                CurSeqNo = 9,
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
-               Date = httpd_util:rfc1123_date({{2012,12,21},{0,25,56}}),
+               NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-4)),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a old (expired) message",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-6)),
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
