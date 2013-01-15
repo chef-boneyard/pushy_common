@@ -20,6 +20,10 @@
          send_message/2,
          send_message_multi/3,
 
+         insert_timestamp_and_sequence/2,
+         check_seq/2,
+         check_timestamp/2,
+         get_max_message_skew/0,
          method_to_atom/1
         ]).
 
@@ -31,6 +35,7 @@
 
 -define(MAX_HEADER_SIZE, 2048).
 -define(MAX_BODY_SIZE, 65536).
+-define(MAX_TIME_SKEW_DEFAULT, 300). % 5 min in seconds
 
 %% ZeroMQ can provide frames as messages to a process. While ZeroMQ guarantees that a
 %% message is all or nothing, I don't know if there is any possibility of frames of
@@ -72,7 +77,8 @@ parse_message(Address, Header, Body, KeyFetch) ->
     Msg1 = build_message_record(Address, Header, Body),
     Msg2 = parse_body(Msg1),
     Msg3 = validate_signature(Msg2,KeyFetch),
-    finalize_msg(Msg3).
+    Msg4 = validate_timestamp(Msg3),
+    finalize_msg(Msg4).
 
 %%
 %% Build a message record for the various parse and validation stages to process
@@ -236,7 +242,23 @@ validate_signature(#pushy_message{validated = ok_sofar,
     end;
 validate_signature(#pushy_message{} = Message, _KeyFetch) -> Message.
 
+%%
+%%
+validate_timestamp(#pushy_message{validated = ok_sofar,
+                                  body = EJson} = Message) ->
+    case check_timestamp(EJson, get_max_message_skew()) of
+        ok ->
+            Message#pushy_message{validated = ok_sofar};
+        _Else ->
+            Message#pushy_message{validated = bad_timestamp}
+    end;
+validate_timestamp(#pushy_message{} = Message) ->
+                          Message.
 
+get_max_message_skew() ->
+    envy:get(pushy_common, max_time_skew, ?MAX_TIME_SKEW_DEFAULT, integer). %% expect seconds
+
+%%
 -spec finalize_msg(Message :: #pushy_message{}) -> {ok| error, #pushy_message{}}.
 finalize_msg(#pushy_message{validated = ok_sofar} = Message) ->
     {ok, Message#pushy_message{validated = ok}};
@@ -346,3 +368,47 @@ send_message_multi(Socket, AddressList, FrameList) ->
 
 metric_name(Name) ->
     pushy_metrics:app_metric(?MODULE, Name).
+
+
+%%%
+%%% Utility routines for timestamps and sequence numbering
+%%%
+%%% Note: we use RFC 1123 dates for human readability. If we move to a binary format we should
+%%% change this to a raw seconds value or the like.
+-spec insert_timestamp_and_sequence(json_term(), pos_integer()) -> json_term().
+insert_timestamp_and_sequence({Fields}, Sequence) ->
+    {[{<<"sequence">>, Sequence},
+      {<<"timestamp">>, list_to_binary(httpd_util:rfc1123_date())} |
+      Fields]}.
+
+check_seq(Msg, LastSeq) when is_integer(LastSeq) ->
+    case ej:get({<<"sequence">>}, Msg) of
+        CurSeq when is_integer(CurSeq) andalso LastSeq < CurSeq ->
+            ok;
+        _ ->
+            error
+    end;
+check_seq(_, _) ->
+    error.
+
+check_timestamp(Message, MaxTimeSkew) ->
+    compare_time(ej:get({<<"timestamp">>}, Message), MaxTimeSkew).
+
+compare_time(MsgTime, MaxTimeSkew) when is_binary(MsgTime) ->
+    compare_time(binary_to_list(MsgTime), MaxTimeSkew);
+compare_time(MsgTime, MaxTimeSkew) when is_list(MsgTime) andalso is_integer(MaxTimeSkew) ->
+    case httpd_util:convert_request_date(MsgTime) of
+        bad_date ->
+            error;
+        EDate ->
+            NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+            MsgSecs = calendar:datetime_to_gregorian_seconds(EDate),
+            case abs(NowSecs - MsgSecs) of
+                N when N < MaxTimeSkew ->
+                    ok;
+                _ ->
+                    error
+            end
+    end;
+compare_time(_, _) ->
+    error.

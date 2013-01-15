@@ -60,8 +60,8 @@ make_message_test_() ->
 
 
 parse_hmac_message_test_() ->
-    EJson = mk_ejson_blob(),
-%    JSon = jiffy:encode(EJson),
+    EJsonNTS = mk_ejson_blob(),
+    EJson = pushy_messaging:insert_timestamp_and_sequence(EJsonNTS, 0),
     Hmac_sha256_key = <<"01234567890123456789012345678901">>,
     KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
 
@@ -76,8 +76,10 @@ parse_hmac_message_test_() ->
        fun() ->
                [Header, Body] = mk_v2_hmac_msg(),
                {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
-               ?assertEqual({pushy_header, proto_v2, hmac_sha256, <<"3OX7zAxVgH8Z8YGWL6ZYBN4n+AIPGNTqbHTB0Og7GMI=">>}, R#pushy_message.parsed_header),
-               ?assertEqual(EJson, R#pushy_message.body)
+               %% time might have changed, rip it out.
+               BodyWOTimestamp = ej:delete({<<"timestamp">>}, R#pushy_message.body),
+               EJsonStripped = ej:delete({<<"timestamp">>}, EJson),
+               ?assertEqual(EJsonStripped, BodyWOTimestamp)
        end},
       {"parse a message whose body doesn't match header sig",
        fun() ->
@@ -88,7 +90,8 @@ parse_hmac_message_test_() ->
      ]}.
 
 parse_rsa_message_test_() ->
-    EJson = mk_ejson_blob(),
+    EJsonNTS = mk_ejson_blob(),
+    EJson = pushy_messaging:insert_timestamp_and_sequence(EJsonNTS, 0),
 %    JSon = jiffy:encode(EJson),
     Key = mk_public_key(),
     KeyFetch = fun(rsa2048_sha1, _) -> {ok,Key} end,
@@ -98,7 +101,7 @@ parse_rsa_message_test_() ->
              folsom:start()
      end,
      fun(_) ->
-              folsom:stop()
+             folsom:stop()
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -162,18 +165,210 @@ parse_bad_message_test_() ->
        end}
      ]}.
 
+parse_bad_timestamp_test_() ->
+    Hmac_sha256_key = <<"01234567890123456789012345678901">>,
+    KeyFetch = fun(hmac_sha256, _) -> {ok, Hmac_sha256_key} end,
+
+    {foreach,
+     fun() ->
+             folsom:start()
+     end,
+     fun(_) ->
+              folsom:stop()
+     end,
+     [{"parse an message missing a timestamp",
+       fun() ->
+               [Header, Body] = mk_v2_hmac_msg(fun(M) -> ej:delete({"timestamp"}, M) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with garbage for a timestamp",
+       fun() ->
+               [Header, Body] = mk_v2_hmac_msg(fun(M) -> ej:set({"timestamp"}, M, <<"garbage">>) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with too much skew for a timestamp",
+       fun() ->
+               Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               BadTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+10000)),
+               [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, BadTime) end, Hmac_sha256_key),
+               {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
+       end},
+      {"parse an message with an old, but ok timestamp",
+       fun() ->
+               Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               OkTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+1)),
+               [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, OkTime) end, Hmac_sha256_key),
+               {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
+               ?assertMatch(#pushy_message{validated = ok}, R)
+       end}
+     ]}.
+
+timestamp_test_() ->
+    {foreach,
+     fun() ->
+             ok
+     end,
+     fun(_) ->
+             ok
+     end,
+     [{"add timestamp and sequence number",
+      fun() ->
+              SeqNo = 10,
+              MsgBase = {[]},
+              Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+              Time = ej:get({<<"timestamp">>}, Msg),
+              MsgDate = httpd_util:convert_request_date(binary_to_list(Time)),
+              MsgSecs = calendar:datetime_to_gregorian_seconds(MsgDate),
+              NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+              ?assert(abs(NowSecs - MsgSecs) < 1)
+      end},
+      {"check that we can validate a sane message",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+
+               Msg2 = jiffy:decode(jiffy:encode(Msg)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with an old sequence number",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg2 = jiffy:decode(jiffy:encode(Msg)),
+
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with garbage instead of a sequence number",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:set({<<"sequence">>}, Msg, <<"Naughty">>),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a message without a sequence number",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 10,
+               MsgBase = {[]},
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:delete({<<"sequence">>}, Msg),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(error, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we validate a old (not expired) message",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-4)),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(ok, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a old (expired) message",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-6)),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a future message",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Date = httpd_util:rfc1123_date({{2112,12,21},{0,25,56}}),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a message missing a timestamp",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:delete({<<"timestamp">>}, Msg),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
+       end},
+      {"check that we fail to validate a message with a garbage timestamp",
+       fun() ->
+               SeqNo = 10,
+               CurSeqNo = 9,
+               MsgBase = {[]},
+
+               Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
+               Msg1 = ej:set({<<"timestamp">>}, Msg, <<"naughty">>),
+               Msg2 = jiffy:decode(jiffy:encode(Msg1)),
+
+               ?assertEqual(ok, pushy_messaging:check_seq(Msg2, CurSeqNo)),
+               ?assertEqual(error, pushy_messaging:check_timestamp(Msg2, 5))
+       end}
+
+
+     ]}.
+
+
 mk_hmac_key() ->
     <<"01234567890123456789012345678901">>.
 
 mk_v2_hmac_msg() ->
-    EJson = mk_ejson_blob(),
     Key = mk_hmac_key(),
-    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson).
+    mk_v2_hmac_msg(fun(X) -> X end, Key).
+
+mk_v2_hmac_msg(F, Key) ->
+    EJson = mk_ejson_blob(),
+    EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
+    EJson3 = F(EJson2),
+    pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson3).
 
 mk_v2_rsa_msg() ->
-    EJson = mk_ejson_blob(),
     Key = mk_private_key(),
-    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson).
+    mk_v2_rsa_msg(fun(X) -> X end, Key).
+
+mk_v2_rsa_msg(F, Key) ->
+    EJson = mk_ejson_blob(),
+    EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
+    EJson3 = F(EJson2),
+    pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson3).
 mk_ejson_blob() ->
     {[{<<"type">>,<<"config">>},
       {<<"host">>,<<"localhost">>},
