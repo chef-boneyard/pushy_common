@@ -191,7 +191,7 @@ parse_bad_timestamp_test_() ->
       {"parse an message with too much skew for a timestamp",
        fun() ->
                Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-               BadTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+10000)),
+               BadTime = rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+10000)),
                [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, BadTime) end, Hmac_sha256_key),
                {error, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
                ?assertMatch(#pushy_message{validated = bad_timestamp}, R)
@@ -199,7 +199,7 @@ parse_bad_timestamp_test_() ->
       {"parse an message with an old, but ok timestamp",
        fun() ->
                Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-               OkTime = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+1)),
+               OkTime = rfc1123_date(calendar:gregorian_seconds_to_datetime(Secs+1)),
                [Header, Body] = mk_v2_hmac_msg(fun(Msg) -> ej:set({"timestamp"}, Msg, OkTime) end, Hmac_sha256_key),
                {ok, R} = pushy_messaging:parse_message(Header, Body, KeyFetch),
                ?assertMatch(#pushy_message{validated = ok}, R)
@@ -280,7 +280,7 @@ timestamp_test_() ->
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
                NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-4)),
+               Date = rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-4)),
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
@@ -295,7 +295,7 @@ timestamp_test_() ->
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
                NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-               Date = httpd_util:rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-6)),
+               Date = rfc1123_date(calendar:gregorian_seconds_to_datetime(NowSecs-6)),
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
@@ -309,7 +309,7 @@ timestamp_test_() ->
                MsgBase = {[]},
 
                Msg = pushy_messaging:insert_timestamp_and_sequence(MsgBase, SeqNo),
-               Date = httpd_util:rfc1123_date({{2112,12,21},{0,25,56}}),
+               Date = rfc1123_date({{2112,12,21},{0,25,56}}),
                Msg1 = ej:set({<<"timestamp">>}, Msg, Date),
                Msg2 = jiffy:decode(jiffy:encode(Msg1)),
 
@@ -346,6 +346,15 @@ timestamp_test_() ->
 
      ]}.
 
+%%
+%% httpd_util:rfc1123_date expects time as local time, which makes life more complicated.
+%% This is a copy that does
+%%
+rfc1123_date({{YYYY,MM,DD},{Hour,Min,Sec}}) ->
+    DayNumber = calendar:day_of_the_week({YYYY,MM,DD}),
+    lists:flatten(
+      io_lib:format("~s, ~2.2.0w ~3.s ~4.4.0w ~2.2.0w:~2.2.0w:~2.2.0w GMT",
+		    [httpd_util:day(DayNumber),DD,httpd_util:month(MM),YYYY,Hour,Min,Sec])).
 
 mk_hmac_key() ->
     <<"01234567890123456789012345678901">>.
