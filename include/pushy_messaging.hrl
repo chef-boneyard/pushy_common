@@ -16,6 +16,7 @@
                                    'body_too_big' |
                                    'bad_header' |
                                    'bad_sig' |
+                                   'bad_timestamp' |
                                    'parse_fail'.
 
 -type pushy_key_fetch_fn() :: any(). %% fun((pushy_signing_method(), json_term()) -> {ok, any()} | {fail, any()}.
