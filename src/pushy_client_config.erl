@@ -16,14 +16,14 @@
 -spec get_config(OrgName :: binary(),
                  NodeName :: binary(),
                  CreatorName :: binary(),
-                 PrivateKey :: any(),
+                 PrivateKey ::  #'RSAPrivateKey'{},
                  Hostname :: binary(),
                  Port :: integer()) -> #pushy_client_config{}.
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
 get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
     Path = path(OrgName, NodeName),
-    Headers =  chef_authn:sign_request(PrivateKey, <<"">>, binary_to_list(CreatorName),
+    Headers =  chef_authn:sign_request(PrivateKey, <<"">>, CreatorName,
                                        <<"GET">>, now, Path),
     FullHeaders = [{"Accept", "application/json"}|Headers],
     Url = construct_url(Hostname, Port, Path),
