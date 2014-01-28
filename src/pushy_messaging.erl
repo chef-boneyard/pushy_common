@@ -28,7 +28,6 @@
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("erlzmq/include/erlzmq.hrl").
 
 -include("pushy_messaging.hrl").
 -include("pushy_metrics.hrl").
@@ -45,10 +44,10 @@
 receive_frame_list(Socket, List) ->
     %% This clause should probably get a timeout. I b
     receive
-        {zmq, Socket, Frame, [rcvmore]} ->
+        {zmq, Socket, Frame, recvmore} ->
             folsom_metrics:notify(metric_name(<<"recv">>),1, meter),
             receive_frame_list(Socket, [Frame | List]);
-        {zmq, Socket, Frame, []} ->
+        {zmq, Socket, Frame} ->
             lists:reverse([Frame | List])
 
     end.
@@ -357,10 +356,10 @@ make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToA
 send_message(_Socket, []) ->
     ok;
 send_message(Socket, [Frame | [] ]) ->
-    erlzmq:send(Socket, Frame, []);
+    gen_zmq:write(Socket, {Frame, false});
 send_message(Socket, [ Frame | FrameList]) ->
     folsom_metrics:notify(metric_name(<<"send">>),1, meter),
-    erlzmq:send(Socket, Frame, [sndmore]),
+    gen_zmq:write(Socket, {Frame, true}),
     send_message(Socket, FrameList).
 
 send_message_multi(Socket, AddressList, FrameList) ->
