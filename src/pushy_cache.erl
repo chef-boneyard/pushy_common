@@ -239,3 +239,4 @@ mark_prune(Name, false) ->
     ets:delete(Name, ?PRUNE_KEY).
 
 cache_exists(Name) ->
+    not(ets:info(Name, name) =:= undefined).
