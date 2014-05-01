@@ -160,7 +160,7 @@ parse_part(_, Record) ->
     Record.
 
 parse_header(Header) ->
-    HeaderParts = re:split(Header, <<";">>),
+    HeaderParts = ?TIME_IT(re, split, (Header, <<";">>)),
     lists:foldl(fun parse_part/2, #pushy_header{version=no_version, method=unknown, signature = <<>>}, HeaderParts).
 
 %%
