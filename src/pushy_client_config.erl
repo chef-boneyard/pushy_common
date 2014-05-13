@@ -38,28 +38,20 @@
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
 get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
-    Path = path(OrgName, NodeName),
-    Headers =  chef_authn:sign_request(PrivateKey, <<"">>, CreatorName,
-                                       <<"GET">>, now, Path),
-    FullHeaders = [{"Accept", "application/json"}|Headers],
-    Url = construct_url(Hostname, Port, Path),
-    case ibrowse:send_req(Url, FullHeaders, get) of
-        {ok, Code, ResponseHeaders, ResponseBody} ->
-            ok = check_http_response(Code, ResponseHeaders, ResponseBody),
-            parse_json_response(PrivateKey, ResponseBody);
-        {error, Reason} ->
-            throw({error, Reason})
-    end.
+    Path = config_path(OrgName, NodeName),
+    Response = pushy_api_request:do_request(PrivateKey, CreatorName, Path, Hostname, Port, get, undefined),
+    {ok, _Code, _ResponseHeaders, ResponseBody} = Response,
+    EJson = jiffy:decode(ResponseBody),
+    parse_config_response(PrivateKey, EJson).
 
--spec parse_json_response(PrivateKey::any(), Body::string()) -> #pushy_client_config{}.
+-spec parse_config_response(PrivateKey::#'RSAPrivateKey'{}, Body::json_object()) -> #pushy_client_config{}.
 %% @doc Parse the configuration response body and return the heartbeat
 %% and command channel addresses along with the public key
 %% for the server.
 %%
 %% We convert the zeromq addresses to lists since it doesn't support
 %% binary endpoints and the heartbeat interval to an integer
-parse_json_response(PrivateKey, Body) ->
-    EJson = jiffy:decode(Body),
+parse_config_response(PrivateKey, EJson) ->
     HeartbeatAddress = ej:get({"push_jobs", "heartbeat", "out_addr"}, EJson),
     CommandAddress = ej:get({"push_jobs", "heartbeat", "command_addr"}, EJson),
     Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
@@ -71,6 +63,15 @@ parse_json_response(PrivateKey, Body) ->
                          session_key = SessionKey,
                          session_method = SessionMethod,
                          server_public_key = PublicKey}.
+
+rsa_public_key(BinKey) ->
+    case chef_authn:extract_public_or_private_key(BinKey) of
+        {error, bad_key} ->
+            lager:error("Can't decode Public Key ~s~n", [BinKey]),
+            {error, bad_key};
+         Key when is_tuple(Key) ->
+            {ok, Key}
+    end.
 
 extract_session_key(PrivateKey, EJson) ->
     case ej:get({"encoded_session_key"}, EJson) of
@@ -91,43 +92,8 @@ extract_enc_session_key(PrivateKey, EJson) ->
     SessionKey = public_key:decrypt_private(base64:decode(EncodedSessionKey), PrivateKey),
     {SessionMethod, SessionKey}.
 
-
-rsa_public_key(BinKey) ->
-    case chef_authn:extract_public_or_private_key(BinKey) of
-        {error, bad_key} ->
-            lager:error("Can't decode Public Key ~s~n", [BinKey]),
-            {error, bad_key};
-         Key when is_tuple(Key) ->
-            {ok, Key}
-    end.
-
-
-
-
-%% @doc Check the code of the HTTP response and throw error if non-2XX
-%%
-check_http_response(Code, Headers, Body) ->
-    case Code of
-        "2" ++ _Digits ->
-            ok;
-        "3" ++ _Digits ->
-            throw({error, {redirection, {Code, Headers, Body}}});
-        "404" ->
-            throw({error, {not_found, {Code, Headers, Body}}});
-        "4" ++ _Digits ->
-            throw({error, {client_error, {Code, Headers, Body}}});
-        "5" ++ _Digits ->
-            throw({error, {server_error, {Code, Headers, Body}}})
-    end.
-
-
--spec construct_url(Hostname :: binary(),
-                    Port :: integer(),
-                    Path :: binary()) -> list().
-construct_url(Hostname, Port, Path) ->
-    lists:flatten(io_lib:format("http://~s:~w/~s", [Hostname, Port, Path])).
-
--spec path(OrgName :: binary(),
+-spec config_path(OrgName :: binary(),
            NodeName :: binary()) -> binary().
-path(OrgName, NodeName) ->
+config_path(OrgName, NodeName) ->
     list_to_binary(io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName])).
+
