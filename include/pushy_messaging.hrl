@@ -20,8 +20,7 @@
 %% under the License.
 %%
 
--type json_term() :: any().
-
+-include_lib("ej/include/ej.hrl").
 
 -type pushy_message_version() :: 'proto_v1' | 'proto_v2' | 'no_version' | 'unknown'.
 -type pushy_signing_method() :: 'rsa2048_sha1' | 'hmac_sha256' | 'unknown'.
@@ -51,6 +50,6 @@
          raw  :: binary() | 'none',
          parsed_header :: #pushy_header{},
 
-         body :: json_term() % Get a viable json type here
+         body :: json_term()
         }).
 

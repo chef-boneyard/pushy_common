@@ -391,7 +391,7 @@ metric_name(Name) ->
 %%%
 %%% Note: we use RFC 1123 dates for human readability. If we move to a binary format we should
 %%% change this to a raw seconds value or the like.
--spec insert_timestamp_and_sequence(json_term(), pos_integer()) -> json_term().
+-spec insert_timestamp_and_sequence({json_plist()}, pos_integer()) -> {json_plist()}.
 insert_timestamp_and_sequence({Fields}, Sequence) ->
     {[{<<"sequence">>, Sequence},
       {<<"timestamp">>, list_to_binary(httpd_util:rfc1123_date())} |

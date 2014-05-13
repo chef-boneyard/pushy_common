@@ -73,7 +73,7 @@ simple_test_() ->
      end,
     [{"Simple success test",
       fun() -> meck:expect(ibrowse, send_req,
-                           fun(_Url, _Headers, get) ->
+                           fun(_Url, _Headers, get, _) ->
                                     {ok, "200", [], make_response_body()}
                             end),
                meck:expect(chef_authn, extract_public_or_private_key,
@@ -84,7 +84,7 @@ simple_test_() ->
                end},
      {"404 test",
       fun() -> meck:expect(ibrowse, send_req,
-                           fun(_Url, _Headers, get) ->
+                           fun(_Url, _Headers, get, _) ->
                                {ok, "404", [], []}
                            end),
 
@@ -94,7 +94,7 @@ simple_test_() ->
       end},
      {"500 test",
       fun() -> meck:expect(ibrowse, send_req,
-                           fun(_Url, _Headers, get) ->
+                           fun(_Url, _Headers, get, _) ->
                                {ok, "500", [], []}
                            end),
                ?assertThrow({error, {server_error, {"500", [], []}}}, pushy_client_config:get_config(OrgName, NodeName,
@@ -103,7 +103,7 @@ simple_test_() ->
       end},
      {"403 test",
       fun() -> meck:expect(ibrowse, send_req,
-                           fun(_Url, _Headers, get) ->
+                           fun(_Url, _Headers, get, _) ->
                                {ok, "403", [], []}
                            end),
                ?assertThrow({error, {client_error, {"403",[], []}}}, pushy_client_config:get_config(OrgName, NodeName,
