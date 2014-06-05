@@ -44,7 +44,7 @@
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("erlzmq/include/erlzmq.hrl").
+-include_lib("czmq/include/czmq.hrl").
 
 -include("pushy_messaging.hrl").
 -include("pushy_metrics.hrl").
@@ -372,12 +372,9 @@ make_send_message_multi_priv_key(Socket, Proto, Method, NameList, EJson, NameToA
 %%%
 send_message(_Socket, []) ->
     ok;
-send_message(Socket, [Frame | [] ]) ->
-    erlzmq:send(Socket, Frame, []);
-send_message(Socket, [ Frame | FrameList]) ->
+send_message(Socket, Frames) ->
     folsom_metrics:notify(metric_name(<<"send">>),1, meter),
-    erlzmq:send(Socket, Frame, [sndmore]),
-    send_message(Socket, FrameList).
+    czmq:zsocket_send_all(Socket, Frames).
 
 send_message_multi(Socket, AddressList, FrameList) ->
     [ send_message(Socket, [Address | FrameList] ) || Address <- AddressList ].
