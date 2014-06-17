@@ -24,5 +24,6 @@
                               heartbeat_interval :: integer(),
                               session_method :: atom(),
                               session_key :: binary(),
-                              server_public_key :: rsa_public_key()
+                              server_public_key :: rsa_public_key(),
+                              server_curve_key :: binary()
                              }).
