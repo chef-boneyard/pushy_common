@@ -23,7 +23,8 @@
 -module(pushy_client_config).
 
 -export([
-         get_config/6
+         get_config/6,
+         get_config/7
         ]).
 
 -include("pushy_messaging.hrl").
@@ -35,10 +36,21 @@
                  PrivateKey ::  #'RSAPrivateKey'{},
                  Hostname :: binary(),
                  Port :: integer()) -> #pushy_client_config{}.
+get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
+    get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port, undefined).
+
+%% @doc retrieve the configuration for a pushy server from the REST config
+-spec get_config(OrgName :: binary(),
+                 NodeName :: binary(),
+                 CreatorName :: binary(),
+                 PrivateKey ::  #'RSAPrivateKey'{},
+                 Hostname :: binary(),
+                 Port :: integer(),
+                 CurveClientPubKey :: binary() | undefined) -> #pushy_client_config{}.
 %% @doc retrieve the configuration for a pushy server from the REST config
 %% endpoint
-get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port) ->
-    Path = config_path(OrgName, NodeName),
+get_config(OrgName, NodeName, CreatorName, PrivateKey, Hostname, Port, CurveClientPubKey) ->
+    Path = config_path(OrgName, NodeName, CurveClientPubKey),
     Response = pushy_api_request:do_request(PrivateKey, CreatorName, Path, Hostname, Port, get, undefined),
     {ok, _Code, _ResponseHeaders, ResponseBody} = Response,
     EJson = jiffy:decode(ResponseBody),
@@ -57,12 +69,14 @@ parse_config_response(PrivateKey, EJson) ->
     Interval = ej:get({"push_jobs", "heartbeat", "interval"}, EJson),
     {SessionMethod, SessionKey} = extract_session_key(PrivateKey, EJson),
     {ok, PublicKey} = rsa_public_key(ej:get({"public_key"}, EJson)),
+    ServerCurveKey = ej:get({"curve_public_key"}, EJson),
     #pushy_client_config{heartbeat_address = binary_to_list(HeartbeatAddress),
                          heartbeat_interval = round(Interval*1000),
                          command_address = binary_to_list(CommandAddress),
                          session_key = SessionKey,
                          session_method = SessionMethod,
-                         server_public_key = PublicKey}.
+                         server_public_key = PublicKey,
+                         server_curve_key = ServerCurveKey}.
 
 rsa_public_key(BinKey) ->
     case chef_authn:extract_public_or_private_key(BinKey) of
@@ -93,7 +107,11 @@ extract_enc_session_key(PrivateKey, EJson) ->
     {SessionMethod, SessionKey}.
 
 -spec config_path(OrgName :: binary(),
-           NodeName :: binary()) -> binary().
-config_path(OrgName, NodeName) ->
-    list_to_binary(io_lib:format("/organizations/~s/pushy/config/~s", [ OrgName, NodeName])).
+           NodeName :: binary(),
+           CurveClientPubKey :: binary() | undefined) -> binary().
+config_path(OrgName, NodeName, undefined) ->
+    list_to_binary(io_lib:format("/organizations/~s/pushy/config/~s", [OrgName, NodeName]));
+config_path(OrgName, NodeName, CurveClientPubKey) when size(CurveClientPubKey) =:= 40 ->
+    list_to_binary(io_lib:format("/organizations/~s/pushy/config/~s?ccpk=~s", [OrgName, NodeName,
+                                                                          http_uri:encode(binary_to_list(CurveClientPubKey))])).
 
