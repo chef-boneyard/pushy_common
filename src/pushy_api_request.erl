@@ -30,8 +30,6 @@
 
 %----------
 
-% TODO: Put into a separate module: pushy_rest_api
-
 %% @doc Sign and send an API request
 -spec do_request(PrivateKey :: #'RSAPrivateKey'{},
                  CreatorName :: binary(),
