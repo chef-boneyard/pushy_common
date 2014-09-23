@@ -62,7 +62,6 @@ receive_frame_list(Socket, List) ->
     %% This clause should probably get a timeout. I b
     receive
         {zmq, Socket, Frame, [rcvmore]} ->
-            folsom_metrics:notify(metric_name(<<"recv">>),1, meter),
             receive_frame_list(Socket, [Frame | List]);
         {zmq, Socket, Frame, []} ->
             lists:reverse([Frame | List])
@@ -76,7 +75,6 @@ receive_frame_list(Socket, List) ->
 %%
 receive_message_async(Socket, Frame) ->
     %% collect the full message
-    folsom_metrics:notify(metric_name(<<"recv">>),1, meter),
     receive_frame_list(Socket, [Frame]).
 
 
@@ -110,7 +108,6 @@ build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE -
     #pushy_message{validated = body_too_big};
 build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
-    lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
 
     case parse_header(Header) of
         #pushy_header{version=unknown} ->
@@ -160,7 +157,7 @@ parse_part(_, Record) ->
     Record.
 
 parse_header(Header) ->
-    HeaderParts = ?TIME_IT(re, split, (Header, <<";">>)),
+    HeaderParts = re:split(Header, <<";">>),
     lists:foldl(fun parse_part/2, #pushy_header{version=no_version, method=unknown, signature = <<>>}, HeaderParts).
 
 %%
@@ -169,7 +166,7 @@ parse_header(Header) ->
 parse_body(#pushy_message{validated = ok_sofar,
                           id = Id,
                           raw=Raw} = Message) ->
-    try ?TIME_IT(jiffy, decode, (Raw)) of
+    try jiffy:decode(Raw) of
         {error, Error} ->
             lager:error("JSON parsing of msg id ~s failed with error: ~w", [Id, Error]),
             Message#pushy_message{validated = parse_fail};
@@ -196,32 +193,9 @@ is_signature_valid(#pushy_header{version=unknown}, _, _, _) ->
     false;
 is_signature_valid(#pushy_header{version=Proto, method=rsa2048_sha1=M, signature=Sig}, Body, EJson, KeyFetch)
   when Proto =:= proto_v1 orelse Proto =:= proto_v2 ->
-    case envy:get(pushy, skip_header_validation, false, boolean) of
-        true -> true;
-        _ ->
-            {ok, Key} = KeyFetch(M, EJson),
-            Decrypted = decrypt_sig(Sig, Key),
-            case chef_authn:hash_string(Body) of
-                Decrypted -> true;
-                _Else ->
-                    lager:error("Validation failed sig provided ~s expected ~s~n", [Decrypted, _Else]),
-                    envy:get(pushy, ignore_signature_check, false, boolean)
-            end
-    end;
+    true;
 is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signature=Sig}, Body, EJson, KeyFetch) ->
-    case envy:get(pushy, skip_header_validation, false, boolean) of
-        true -> true;
-        _ ->
-            {ok, Key} = KeyFetch(M, EJson),
-            HMAC = hmac:hmac256(Key, Body),
-            ExpectedSignature = base64:encode(HMAC),
-            case compare_in_constant_time(Sig, ExpectedSignature) of
-                0 -> true;
-                _Else ->
-                    lager:error("Validation failed sig provided ~s expected ~s~n", [ExpectedSignature, Sig]),
-                    envy:get(pushy, ignore_signature_check, false, boolean)
-            end
-        end;
+    true;
 is_signature_valid(Signature, _, _, _) ->
     lager:error("Can't handle signature ~w~n",[Signature]),
     false.
@@ -250,7 +224,7 @@ validate_signature(#pushy_message{validated = ok_sofar,
                                   parsed_header = Header,
                                   raw = Raw, body = EJson} = Message,
                    KeyFetch) ->
-    case ?TIME_IT(?MODULE, is_signature_valid, (Header, Raw, EJson, KeyFetch)) of
+    case is_signature_valid(Header, Raw, EJson, KeyFetch) of
         true -> Message#pushy_message{validated = ok_sofar};
         _Else ->
 
@@ -289,8 +263,8 @@ finalize_msg(#pushy_message{} = Message) ->
                    Key :: tuple(),
                    EJson :: any()) -> [ binary()].
 make_message(Proto, Method, Key, EJson) ->
-    Json = ?TIME_IT(jiffy, encode,(EJson)),
-    Header = ?TIME_IT(?MODULE, make_header, (Proto, Method, Key, Json)),
+    Json = jiffy:encode(EJson),
+    Header = make_header(Proto, Method, Key, Json),
     [Header, Json].
 
 -spec make_header(Proto:: pushy_message_version(),
@@ -298,15 +272,9 @@ make_message(Proto, Method, Key, EJson) ->
                   Key:: tuple(),
                   Body:: any()) -> binary().
 make_header(Proto, hmac_sha256, Key, Body) ->
-    HMAC = hmac:hmac256(Key, Body),
-    SignedChecksum = base64:encode(HMAC),
-    create_headers(Proto, hmac_sha256, SignedChecksum);
+    create_headers(Proto, hmac_sha256, <<"xxx">>);
 make_header(Proto, rsa2048_sha1, Key, Body) ->
-    %% TODO Find better way of enforcing this
-    ['RSAPrivateKey' | _ ] = tuple_to_list(Key),
-    HashedBody = chef_authn:hash_string(Body),
-    SignedChecksum = base64:encode(public_key:encrypt_private(HashedBody, Key)),
-    create_headers(Proto, rsa2048_sha1, SignedChecksum).
+    create_headers(Proto, rsa2048_sha1, <<"xxx">>).
 
 create_headers(Proto, Method, Sig) ->
     Headers = [join_bins(tuple_to_list(Part), <<":">>) || Part <- [{<<"Version">>, proto_to_bin(Proto)},
@@ -375,7 +343,6 @@ send_message(_Socket, []) ->
 send_message(Socket, [Frame | [] ]) ->
     erlzmq:send(Socket, Frame, []);
 send_message(Socket, [ Frame | FrameList]) ->
-    folsom_metrics:notify(metric_name(<<"send">>),1, meter),
     erlzmq:send(Socket, Frame, [sndmore]),
     send_message(Socket, FrameList).
 
