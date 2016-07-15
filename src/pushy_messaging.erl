@@ -213,7 +213,7 @@ is_signature_valid(#pushy_header{version=proto_v2, method=hmac_sha256=M, signatu
         true -> true;
         _ ->
             {ok, Key} = KeyFetch(M, EJson),
-            HMAC = hmac:hmac256(Key, Body),
+            HMAC = crypto:hmac(sha256, Key, Body),
             ExpectedSignature = base64:encode(HMAC),
             case compare_in_constant_time(Sig, ExpectedSignature) of
                 0 -> true;
@@ -298,7 +298,7 @@ make_message(Proto, Method, Key, EJson) ->
                   Key:: tuple(),
                   Body:: any()) -> binary().
 make_header(Proto, hmac_sha256, Key, Body) ->
-    HMAC = hmac:hmac256(Key, Body),
+    HMAC = crypto:hmac(sha256, Key, Body),
     SignedChecksum = base64:encode(HMAC),
     create_headers(Proto, hmac_sha256, SignedChecksum);
 make_header(Proto, rsa2048_sha1, Key, Body) ->
