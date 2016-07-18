@@ -3,3 +3,4 @@ ebin
 .eunit
 _build
 rebar.lock
+rebar3
