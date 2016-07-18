@@ -73,8 +73,8 @@ parse_hmac_message_test_() ->
      fun() ->
              start_folsom()
      end,
-     fun(_) ->
-             folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -103,8 +103,8 @@ parse_rsa_message_test_() ->
      fun() ->
              start_folsom()
      end,
-     fun(_) ->
-             folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -129,8 +129,8 @@ parse_bad_message_test_() ->
      fun() ->
              start_folsom()
      end,
-     fun(_) ->
-             folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse an empty header",
        fun() ->
@@ -176,8 +176,8 @@ parse_bad_timestamp_test_() ->
      fun() ->
              start_folsom()
      end,
-     fun(_) ->
-             folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse an message missing a timestamp",
        fun() ->
