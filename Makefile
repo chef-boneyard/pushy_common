@@ -1,28 +1,39 @@
-DEPS=$(CURDIR)/deps
+# Fallback to rebar on PATH
+REBAR3 ?= $(shell which rebar3)
 
-all: compile eunit dialyzer
+REBAR3_URL = "https://s3.amazonaws.com/rebar3/rebar3"
 
-clean:
-	@rebar clean
+# And finally, prep to download rebar if all else fails
+ifeq ($(REBAR3),)
+REBAR3 = $(CURDIR)/rebar3
+endif
 
-distclean: clean
-	@rm -rf deps
+all: $(REBAR3)
+	@$(REBAR3) do clean, compile, eunit, dialyzer
 
-compile: $(DEPS)
-	@rebar compile
+rel: all
+	@$(REBAR3) release
+
+test: $(REBAR3)
+	@$(REBAR3) eunit
 
 dialyzer:
-	@dialyzer -Wrace_conditions -Wunderspecs -r ebin
+	@$(REBAR3) dialyzer
 
-$(DEPS):
-	@rebar get-deps
+$(REBAR3):
+	curl -Lo rebar3 $(REBAR3_URL) || wget $(REBAR3_URL)
+	chmod a+x rebar3
 
-eunit: compile
-	@rebar skip_deps=true eunit
+update:
+	$(REBAR3) update
 
-test: eunit
+clean:
+	$(REBAR3) clean
+
+distclean: clean
+	@rm -rf _build
 
 doc:
 	@rebar doc skip_deps=true
 
-.PHONY: doc
+.PHONY: doc test

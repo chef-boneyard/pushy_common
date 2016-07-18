@@ -1,10 +1,15 @@
-before_install:
-   - sudo apt-get update -qq
-   - sudo apt-get install -qq uuid-dev
+sudo: false
+branches:
+    only:
+      - master
+
+addons:
+  apt:
+    packages:
+      - uuid-dev
 
 language: erlang
 otp_release:
-   - 17.4
-   - R16B03
+   - 18.3
 
 script: make test

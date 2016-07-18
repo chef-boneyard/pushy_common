@@ -26,6 +26,10 @@
 -include("pushy_client.hrl").
 -include("pushy_messaging.hrl").
 
+start_folsom() ->
+    {ok, StartedApps} = application:ensure_all_started(folsom),
+    StartedApps.
+
 make_message_test_() ->
     EJson = mk_ejson_blob(),
     JSon = jiffy:encode(EJson),
@@ -33,10 +37,10 @@ make_message_test_() ->
     PrivateKey = mk_private_key(),
     {foreach,
      fun() ->
-             folsom:start()
+             start_folsom()
      end,
-     fun(_) ->
-              folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"Make a simple HMAC message",
       fun() ->
@@ -67,10 +71,10 @@ parse_hmac_message_test_() ->
 
     {foreach,
      fun() ->
-             folsom:start()
+             start_folsom()
      end,
-     fun(_) ->
-              folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -92,16 +96,15 @@ parse_hmac_message_test_() ->
 parse_rsa_message_test_() ->
     EJsonNTS = mk_ejson_blob(),
     EJson = pushy_messaging:insert_timestamp_and_sequence(EJsonNTS, 0),
-%    JSon = jiffy:encode(EJson),
     Key = mk_public_key(),
     KeyFetch = fun(rsa2048_sha1, _) -> {ok,Key} end,
 
     {foreach,
      fun() ->
-             folsom:start()
+             start_folsom()
      end,
-     fun(_) ->
-             folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse a simple HMAC signed message",
        fun() ->
@@ -124,10 +127,10 @@ parse_bad_message_test_() ->
 
     {foreach,
      fun() ->
-             folsom:start()
+             start_folsom()
      end,
-     fun(_) ->
-              folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse an empty header",
        fun() ->
@@ -171,10 +174,10 @@ parse_bad_timestamp_test_() ->
 
     {foreach,
      fun() ->
-             folsom:start()
+             start_folsom()
      end,
-     fun(_) ->
-              folsom:stop()
+     fun(StartedApps) ->
+             [ application:stop(App) || App <- StartedApps ]
      end,
      [{"parse an message missing a timestamp",
        fun() ->
