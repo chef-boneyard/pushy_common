@@ -165,7 +165,13 @@ parse_bad_message_test_() ->
                [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, <<"{}">>, KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
-       end}
+       end},
+      {"parse a message with a body that's too large",
+       fun() ->
+               [Header, Body] = mk_v2_hmac_msg(100000),
+               ?assertMatch({error, #pushy_message{validated = body_too_big}},
+                             pushy_messaging:parse_message(Header, Body, KeyFetch))
+        end}
      ]}.
 
 parse_bad_timestamp_test_() ->
@@ -364,10 +370,17 @@ mk_hmac_key() ->
 
 mk_v2_hmac_msg() ->
     Key = mk_hmac_key(),
-    mk_v2_hmac_msg(fun(X) -> X end, Key).
+    mk_v2_hmac_msg(0, fun(X) -> X end, Key).
+
+mk_v2_hmac_msg(Size) ->
+    Key = mk_hmac_key(),
+    mk_v2_hmac_msg(Size, fun(X) -> X end, Key).
 
 mk_v2_hmac_msg(F, Key) ->
-    EJson = mk_ejson_blob(),
+    mk_v2_hmac_msg(0, F, Key).
+
+mk_v2_hmac_msg(Size, F, Key) ->
+    EJson = mk_ejson_blob(Size),
     EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
     EJson3 = F(EJson2),
     pushy_messaging:make_message(proto_v2, hmac_sha256, Key, EJson3).
@@ -381,9 +394,19 @@ mk_v2_rsa_msg(F, Key) ->
     EJson2 = pushy_messaging:insert_timestamp_and_sequence(EJson, 0),
     EJson3 = F(EJson2),
     pushy_messaging:make_message(proto_v2, rsa2048_sha1, Key, EJson3).
+
+
 mk_ejson_blob() ->
+    mk_ejson_blob(0).
+
+mk_ejson_blob(0) ->
     {[{<<"type">>,<<"config">>},
       {<<"host">>,<<"localhost">>},
+      {<<"lifetime">>,3600}]};
+mk_ejson_blob(ExtraByteCount) ->
+    {[{<<"type">>,<<"config">>},
+      {<<"host">>,<<"localhost">>},
+      {<<"extra">>, base64:encode(crypto:strong_rand_bytes(ExtraByteCount))},
       {<<"lifetime">>,3600}]}.
 mk_ejson_med_blob() ->
     {[{<<"type">>,<<"config">>},
