@@ -90,7 +90,14 @@ parse_hmac_message_test_() ->
                [Header, _Body] = mk_v2_hmac_msg(),
                {error, R} = (catch pushy_messaging:parse_message(Header, jiffy:encode(mk_ejson_med_blob()), KeyFetch)),
                ?assertMatch(#pushy_message{validated = bad_sig}, R)
-       end}
+       end},
+      {"parse a message with a body that's not too large",
+       fun() ->
+               application:set_env(pushy, max_body_size, 90000),
+               [Header, Body] = mk_v2_hmac_msg(10),
+               ?assertMatch({ok, #pushy_message{validated = ok}},
+                            pushy_messaging:parse_message(Header, Body, KeyFetch))
+        end}
      ]}.
 
 parse_rsa_message_test_() ->
@@ -168,6 +175,7 @@ parse_bad_message_test_() ->
        end},
       {"parse a message with a body that's too large",
        fun() ->
+               application:set_env(pushy, max_body_size, 99999),
                [Header, Body] = mk_v2_hmac_msg(100000),
                ?assertMatch({error, #pushy_message{validated = body_too_big}},
                              pushy_messaging:parse_message(Header, Body, KeyFetch))

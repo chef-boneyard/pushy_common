@@ -105,13 +105,27 @@ parse_message(Address, Header, Body, KeyFetch) ->
 build_message_record(_Address, Header, _Body) when size(Header) > ?MAX_HEADER_SIZE ->
     lager:error("Message rejected because header is too big ~p > ~p", [size(Header), ?MAX_HEADER_SIZE]),
     #pushy_message{validated = header_too_big};
-build_message_record(_Address, _Header, Body) when size(Body) > ?MAX_BODY_SIZE ->
-    lager:error("Message rejected because body is too big ~p > ~p", [size(Body), ?MAX_BODY_SIZE]),
-    #pushy_message{validated = body_too_big};
 build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Body) ->
     Id = make_ref(),
-    lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), len_h(Body)]),
+    MaxBodySize = envy:get(pushy, max_body_size, ?MAX_BODY_SIZE, integer),
+    BodySize = size(Body),
+    lager:debug("Received msg ~w (~w:~w:~w)",[Id, len_h(Address), len_h(Header), BodySize]),
 
+    case size(Body) > MaxBodySize of
+        true ->
+            lager:error("Message rejected because body is too big ~p > ~p", [BodySize, MaxBodySize]),
+            #pushy_message{validated = body_too_big};
+        false ->
+            make_pushy_message(Id, Address, Header, Body)
+    end;
+build_message_record(A,H,B) ->
+    lager:error("Received invalid message - are Header and Body both binaries?"),
+    #pushy_message{validated = bad_input,
+                  address = A,
+                  header = H,
+                  raw = B}.
+
+make_pushy_message(Id, Address, Header, Body) ->
     case parse_header(Header) of
         #pushy_header{version=unknown} ->
             #pushy_message{validated = bad_header};
@@ -125,12 +139,7 @@ build_message_record(Address, Header, Body) when is_binary(Header), is_binary(Bo
                            raw = Body,
                            parsed_header = HeaderRecord
                           }
-    end;
-build_message_record(A,H,B) ->
-    #pushy_message{validated = bad_input,
-                  address = A,
-                  header = H,
-                  raw = B}.
+    end.
 
 len_h(none) -> 0;
 len_h(B) when is_binary(B) -> erlang:byte_size(B).
